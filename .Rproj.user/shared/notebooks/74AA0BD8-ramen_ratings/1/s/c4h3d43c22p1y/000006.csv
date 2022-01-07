@@ -1,0 +1,15 @@
+"0","ramen_processed <- ramen %>% 
+  mutate(style = fct_lump(style, 4),
+         country = fct_lump(country, 12),
+         brand = fct_lump(brand, 20)) %>% 
+  replace_na(list(style = ""Other"")) %>% 
+  mutate(brand = fct_relevel(brand, ""Other""),
+         country = fct_relevel(country, ""Other""),
+         style = fct_relevel(style, ""Pack"")) %>% 
+  mutate(review_number = parse_number(review_number))
+"
+"2","Error: Problem with `mutate()` column `review_number`.
+[34mi[39m `review_number = parse_number(review_number)`.
+[31mx[39m is.character(x) is not TRUE
+[90mRun `rlang::last_error()` to see where the error occurred.[39m
+"

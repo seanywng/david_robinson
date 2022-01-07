@@ -1,0 +1,196 @@
+---
+title: "Untitled"
+author: "Sean Ng"
+date: "12/23/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(scales)
+library(janitor)
+library(ggrepel)
+library(broom)
+theme_set(theme_light())
+```
+
+```{r}
+recent_grads <- 
+  read_csv("https://raw.githubusercontent.com/fivethirtyeight/data/master/college-majors/recent-grads.csv") %>% 
+  clean_names()
+
+
+```
+
+```{r}
+majors <- recent_grads %>% 
+  arrange(desc(median)) %>% 
+  mutate(major = str_to_title(major),
+         major = fct_reorder(major, median))
+```
+
+
+```{r}
+
+recent_grads %>% 
+  mutate(major_category = fct_reorder(major_category, median)) %>% 
+  ggplot(aes(x = major_category, y = median)) + 
+  geom_boxplot() +
+  scale_y_continuous(labels = dollar_format()) +
+  coord_flip()
+  
+```
+
+```{r}
+recent_grads %>%
+  group_by(major_category) %>% 
+  summarise(median = median(median)) %>% 
+  mutate(major_category = fct_reorder(major_category, median)) %>% 
+  ggplot(aes(x = major_category, y = median)) +
+  geom_col() +
+  scale_y_continuous(labels = dollar_format()) +
+  coord_flip()
+```
+
+```{r}
+
+recent_grads %>% glimpse()
+
+recent_grads %>% 
+  select(major, median, p25th, p75th) %>% 
+  arrange(desc(median)) %>% 
+  head(20) %>% 
+  mutate(major = str_to_title(major),
+         major = fct_reorder(major, median)) %>%
+  ggplot(aes(x = median, y = major)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = p25th, xmax = p75th, height = 0))
+```
+
+```{r}
+recent_grads %>% 
+  select(major, median, p25th, p75th) %>% 
+  arrange(median) %>% 
+  head(20) %>%
+  mutate(major = str_to_title(major),
+         major = fct_reorder(major, median)) %>%
+  ggplot(aes(x = median, y = major)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = p25th, xmax = p75th, height = 0))
+```
+
+```{r}
+majors %>% 
+  ggplot(aes(x = sample_size, y = median)) +
+  geom_point() +
+  geom_text(aes(label = major), check_overlap = TRUE, vjust = 1, hjust = 1, size = 1.5) +
+  scale_x_log10() +
+  scale_y_continuous(labels = dollar_format())
+```
+
+```{r}
+recent_grads %>% 
+  count(major_category, wt = total, sort = TRUE) %>% 
+  mutate(major_category = fct_reorder(major_category, n)) %>% 
+  ggplot(aes(x = major_category, y = n, fill = major_category)) +
+  geom_col() +
+  scale_y_continuous(labels = comma) +
+  coord_flip() +
+  labs(x = "",
+       y = "Total # of graduates") +
+  theme(legend.position = "none")
+  
+    
+```
+
+```{r}
+majors %>% 
+  mutate(major = fct_reorder(major, total)) %>% 
+  arrange(desc(total)) %>% 
+  head(20) %>% 
+  ggplot(aes(x = major, y = total)) +
+  geom_col() +
+  scale_y_continuous(labels = comma) +
+  coord_flip() +
+  labs(x = "",
+       y = "Total # of graduates")
+  
+```
+
+```{r}
+# how does gender breakdown relate to typical earnings? 
+
+majors %>% 
+  arrange(desc(total)) %>% 
+  head(20) %>% 
+  mutate(major = fct_reorder(major, total)) %>% 
+  pivot_longer(cols = c(men, women), names_to = "gender", values_to = "number") %>% 
+  select(major, gender, number) %>% 
+  ggplot(aes(y = major, x = number, fill = gender)) +
+  geom_col() +
+  scale_x_continuous(labels = comma)
+  
+```
+
+```{r}
+by_major_category <- majors %>% 
+  filter(!is.na(total)) %>% 
+  group_by(major_category) %>% 
+  summarise(men = sum(men),
+            women = sum(women),
+            total = sum(total),
+            median_salary = sum(median * sample_size / sum(sample_size))) %>% 
+  mutate(share_women = women / total) %>% 
+  arrange(desc(share_women))
+```
+
+```{r}
+by_major_category %>% 
+  ggplot(aes(x = share_women, y = median_salary)) +
+  # getting more control over how the geom_smooth works 
+  geom_smooth(method = "lm", colour = NA, size = 2, alpha = 0.1) +
+  geom_line(stat = "smooth", method = "lm", aes(x = share_women, y = median_salary), 
+            alpha = 0.3, colour = "blue", size = 1) +
+  geom_point() +
+  geom_text_repel(aes(label = major_category), size = 2) +
+  expand_limits(y = 0) +
+  scale_y_continuous(labels = dollar_format()) +
+  scale_x_continuous(labels = percent)
+```
+
+```{r}
+majors %>% 
+  ggplot(aes(x = share_women, y = median)) +
+  # getting more control over how the geom_smooth works 
+  geom_smooth(method = "lm", colour = NA, size = 2, alpha = 0.15) +
+  geom_line(stat = "smooth", method = "lm", aes(x = share_women, y = median), 
+            alpha = 0.3, colour = "blue", size = 1) +
+  geom_point() +
+  expand_limits(y = 0) +
+  scale_y_continuous(labels = dollar_format()) +
+  scale_x_continuous(labels = percent)
+```
+
+```{r}
+majors %>% 
+  select(major, total, share_women, sample_size, median) %>% 
+  lm(median ~ share_women, data = ., weights = sample_size) %>% 
+  summary()
+```
+
+```{r}
+majors %>% 
+  select(major, major_category, total, share_women, sample_size, median) %>%
+  add_count(major_category) %>% 
+  filter(n >= 10) %>% 
+  nest(-major_category) %>% 
+  mutate(model = map(data, ~ lm(median ~ share_women, data = ., weights = sample_size)),
+         tidied = map(model, tidy)) %>% 
+  unnest(tidied) %>% 
+  filter(term == "share_women") %>% 
+  arrange(estimate) %>% 
+  mutate(fdr = p.adjust(p.value, method = "fdr"))
+  
+```
+

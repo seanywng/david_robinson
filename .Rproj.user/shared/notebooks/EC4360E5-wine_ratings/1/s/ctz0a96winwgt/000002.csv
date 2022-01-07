@@ -1,0 +1,27 @@
+"0","glimpse(wine)"
+"1","Rows: 129,971"
+"1",""
+"1","
+"
+"1","Columns: 14"
+"1",""
+"1","
+"
+"1","$ country               [3m[38;5;246m<chr>[39m[23m ""Italy"", ""Portugal"", ""US"", ""US"", ""US"", ""Spain"", ""Italy"", ""France"", ""Germany"", ""Fra~
+$ description           [3m[38;5;246m<chr>[39m[23m ""Aromas include tropical fruit, broom, brimstone and dried herb. The palate isn't ~
+$ designation           [3m[38;5;246m<chr>[39m[23m ""Vulkà Bianco"", ""Avidagos"", NA, ""Reserve Late Harvest"", ""Vintner's Reserve Wild Ch~
+$ points                [3m[38;5;246m<dbl>[39m[23m 87, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87~
+$ price                 [3m[38;5;246m<dbl>[39m[23m NA, 15, 14, 13, 65, 15, 16, 24, 12, 27, 19, 30, 34, NA, 12, 24, 30, 13, 28, 32, 23~
+$ province              [3m[38;5;246m<chr>[39m[23m ""Sicily & Sardinia"", ""Douro"", ""Oregon"", ""Michigan"", ""Oregon"", ""Northern Spain"", ""S~
+$ region_1              [3m[38;5;246m<chr>[39m[23m ""Etna"", NA, ""Willamette Valley"", ""Lake Michigan Shore"", ""Willamette Valley"", ""Nava~
+$ region_2              [3m[38;5;246m<chr>[39m[23m NA, NA, ""Willamette Valley"", NA, ""Willamette Valley"", NA, NA, NA, NA, NA, ""Napa"", ~
+$ taster_name           [3m[38;5;246m<chr>[39m[23m ""Kerin O’Keefe"", ""Roger Voss"", ""Paul Gregutt"", ""Alexander Peartree"", ""Paul Gregutt~
+$ taster_twitter_handle [3m[38;5;246m<chr>[39m[23m ""@kerinokeefe"", ""@vossroger"", ""@paulgwine "", NA, ""@paulgwine "", ""@wineschach"", ""@k~
+$ title                 [3m[38;5;246m<chr>[39m[23m ""Nicosia 2013 Vulkà Bianco  (Etna)"", ""Quinta dos Avidagos 2011 Avidagos Red (Douro~
+$ year                  [3m[38;5;246m<int>[39m[23m 2013, 2011, 2013, 2013, 2012, 2011, 2013, 2012, 2013, 2012, 2011, 2012, 2012, 2012~
+$ variety               [3m[38;5;246m<chr>[39m[23m ""White Blend"", ""Portuguese Red"", ""Pinot Gris"", ""Riesling"", ""Pinot Noir"", ""Temprani~
+$ winery                [3m[38;5;246m<chr>[39m[23m ""Nicosia"", ""Quinta dos Avidagos"", ""Rainstorm"", ""St. Julian"", ""Sweet Cheeks"", ""Tand~"
+"1",""
+"1","
+"
+"0","wine %>% count(country, sort = TRUE)"

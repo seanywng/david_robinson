@@ -1,0 +1,212 @@
+---
+title: "Untitled"
+author: "Sean Ng"
+date: "12/22/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(janitor)
+library(lubridate)
+library(broom)
+library(widyr)
+library(irlba)
+
+set.seed(20181209)
+
+restaurant_inspections_raw <- read_csv("https://data.cityofnewyork.us/api/views/43nn-pn8j/rows.csv") 
+
+restaurant_inspections <- restaurant_inspections_raw %>% 
+  clean_names() %>% 
+  select(-phone, -grade_date, -record_date, -building, -street) %>% 
+  mutate(inspection_date = mdy(inspection_date)) %>% 
+  separate(inspection_type, c("inspection_programme", "inspection_type"), sep = " / ")
+
+
+```
+
+
+```{r}
+restaurant_inspections %>% count(year = year(inspection_date))
+
+restaurant_inspections %>% count(dba, camis, sort = TRUE)
+
+restaurant_inspections %>% count(month = month(inspection_date))
+
+restaurant_inspections %>% count(grade, sort = TRUE)
+
+restaurant_inspections %>% count(violation_description, sort = TRUE) %>% 
+  head() %>% pull(violation_description)
+
+restaurant_inspections %>% count(camis, dba, inspection_date, sort = TRUE)
+
+restaurant_inspections %>% count(cuisine_description, sort = TRUE)
+
+restaurant_inspections %>% count(action, sort = TRUE)
+
+restaurant_inspections %>% 
+  filter(action == "No violations were recorded at the time of this inspection.") %>% 
+  count(critical_flag)
+
+```
+
+```{r}
+inspections <- restaurant_inspections %>% 
+  group_by(camis, dba, boro, zipcode, cuisine_description, inspection_date, 
+           action, score, grade, inspection_type, inspection_programme) %>% 
+  summarise(violations = sum(!is.na(violation_code)),
+            critical_violations = sum(critical_flag == "Critical", na.rm = TRUE),
+            non_critical_violations = sum(critical_flag == "Not Critical", na.rm = TRUE)) %>%
+  ungroup()
+```
+
+```{r}
+inspections %>% 
+  count(inspection_type, sort = TRUE)
+
+inspections %>% 
+  filter(inspection_programme == "Cycle Inspection") %>% 
+  count(grade, sort = TRUE)
+
+most_recent_cycle_inspection <- inspections %>% 
+  filter(inspection_programme == "Cycle Inspection",
+         inspection_type == "Initial Inspection") %>% 
+  arrange(desc(inspection_date)) %>% 
+  distinct(camis, .keep_all = TRUE)
+```
+
+```{r}
+most_recent_cycle_inspection %>% 
+  group_by(boro) %>% 
+  summarise(avg_score = mean(score),
+            median_score = median(score),
+            restaurants = n()) %>% 
+  arrange(desc(restaurants))
+
+```
+
+```{r}
+most_recent_cycle_inspection %>% 
+  ggplot(aes(x = score)) +
+  geom_histogram()
+```
+
+```{r}
+cuisine_conf_int <- most_recent_cycle_inspection %>% 
+  add_count(cuisine_description) %>% 
+  filter(n > 200) %>% 
+  nest(-cuisine_description) %>% 
+  mutate(model = map(data, ~ t.test(.$score))) %>% 
+  unnest_legacy(map(model, tidy))
+
+cuisine_conf_int %>% 
+  mutate(cuisine_description = fct_reorder(cuisine_description, estimate)) %>% 
+  ggplot(aes(estimate, cuisine_description)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = conf.low, 
+                     xmax = conf.high)) +
+  labs(x = "Average inspection score",
+       y = "Type of cuisine")
+```
+
+```{r}
+by_dba <- most_recent_cycle_inspection %>% 
+  group_by(dba, cuisine = cuisine_description) %>% 
+  summarise(locations = n(),
+            avg_score = mean(score),
+            median_score = median(score)) %>% 
+  ungroup() %>%
+  arrange(desc(locations)) 
+
+most_recent_cycle_inspection %>% 
+  group_by(dba, cuisine = cuisine_description) %>% 
+  summarise(locations = n(),
+            avg_score = mean(score),
+            median_score = median(score)) %>% 
+  ungroup() %>%
+  arrange(desc(locations)) %>% 
+  mutate(locations_bin = cut(locations, c(0, 1, 3, 10, Inf), labels = c("1", "2-3", "3-10", ">10"))) %>% 
+  ggplot(aes(x = locations_bin, avg_score + 1)) +
+  geom_boxplot() +
+  scale_y_log10()
+```
+
+```{r}
+by_cuisine <- by_dba %>% 
+  group_by(cuisine) %>% 
+  summarise(avg_score = mean(avg_score),
+            median_score = median(avg_score),
+            restaurants = n()) %>% 
+  arrange(desc(restaurants))
+
+cuisine_conf_int <- by_dba %>% 
+  add_count(cuisine) %>% 
+  filter(n > 100) %>% 
+  nest(-cuisine) %>% 
+  mutate(model = map(data, ~ t.test(.$avg_score))) %>% 
+  unnest_legacy(map(model, tidy))
+
+cuisine_conf_int %>% 
+  mutate(cuisine = fct_reorder(cuisine, estimate)) %>% 
+  ggplot(aes(estimate, cuisine)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = conf.low, 
+                     xmax = conf.high)) +
+  labs(x = "Average inspection score",
+       y = "Type of cuisine",
+       title = "Average inspection score by type of cuisine in NYC",
+       subtitle = "Restaurant chains were counted once based on their average score")
+```
+
+```{r}
+violation_cuisine_count <-  restaurant_inspections %>% 
+  semi_join(most_recent_cycle_inspection, by = c("camis", "inspection_date")) %>% 
+  count(critical_flag, violation_code, violation_description, cuisine = cuisine_description) %>% 
+  group_by(violation_code) %>% 
+  mutate(violation_total = sum(n)) %>% 
+  group_by(cuisine) %>% 
+  mutate(cuisine_total = sum(n)) %>% 
+  ungroup() %>% 
+  filter(violation_total >= 1000,
+         cuisine_total >= 2000) %>% 
+  group_by(violation_description) %>% 
+  mutate(fraction = n / cuisine_total,
+         avg_fraction = mean(fraction)) %>% 
+  ungroup()
+  
+```
+
+```{r}
+violation_cuisine_count %>% 
+  mutate(relative_risk = fraction / avg_fraction) %>% 
+  arrange(desc(relative_risk)) %>% 
+  filter(str_detect(violation_description, "mice"))
+```
+
+```{r}
+# what violations tend to occur together?
+
+violations <- restaurant_inspections %>% 
+  semi_join(most_recent_cycle_inspection, by = c("camis", "inspection_date")) %>% 
+  filter(!is.na(violation_description)) 
+
+violations %>% 
+  pairwise_cor(violation_description, camis, sort = "TRUE") 
+ 
+# PCA using single value decomposition (svd?); six dimensions are created 
+principal_components <- violations %>% 
+  mutate(value = 1) %>% # this just gives the pca a value to latch onto
+  widely_svd(violation_description, camis, value, nv = 6) 
+
+principal_components %>% 
+  filter(dimension == 2) %>% 
+  top_n(10, abs(value)) %>% 
+  mutate(violation_description = str_sub(violation_description, 1, 60),
+         violation_description = fct_reorder(violation_description, value)) %>% 
+  ggplot(aes(x = violation_description, y = value)) +
+  geom_col() +
+  coord_flip()
+```
+

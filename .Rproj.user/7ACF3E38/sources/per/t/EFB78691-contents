@@ -1,0 +1,173 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(readxl)
+`%!in%` <- Negate(`%in%`)
+theme_set(theme_light())
+```
+
+```{r}
+read_xlsx("data_tables/sed17-sr-tab001.xlsx", 
+          skip = 3)
+
+# major field of study
+fields_raw <- read_xlsx("data_tables/sed17-sr-tab012.xlsx", skip = 3) %>% 
+  janitor::clean_names()
+
+fields_raw %>% 
+  mutate(field = field_of_study) %>% 
+  gather(key, value, -field) %>% 
+  mutate(year = ifelse(str_detect(key, "\\_0"), parse_number(key), NA),
+         type = ifelse(!str_detect(value, "Number|Value"), NA, value),
+         value = as.numeric(value)) %>% 
+  fill(year, type) %>%  view()
+
+```
+
+```{r}
+major_fields <- fields_raw %>% 
+  rename(x1987_percent = x3, 
+         x1992_percent = x5,
+         x1997_percent = x7,
+         x2002_percent = x9,
+         x2007_percent = x11,
+         x2012_percent = x13,
+         x2017_percent = x15) %>% 
+  pivot_longer(-field_of_study, names_to = "key", values_to = "value") %>% 
+  mutate(year = parse_number(key),
+         type = ifelse(str_detect(key, "_percent"), "percent", "number"),
+         value = as.numeric(value)) %>% 
+  filter(!is.na(value)) %>% 
+  select(-key) %>% 
+  pivot_wider(names_from = type, values_from = value) 
+  
+  
+```
+
+```{r}
+fine_fields <- read_xlsx("data_tables/sed17-sr-tab013.xlsx", skip = 3) %>% 
+  rename(field = 1) %>% 
+  pivot_longer(-field, names_to = "year", values_to = "number") %>% 
+  mutate(year = as.numeric(year),
+         number = as.numeric(number)) %>% 
+  filter(!is.na(number))
+
+```
+
+```{r}
+sex <- c("All doctorate recipientsa", "Male", "Female", "All fieldsa", "All")
+
+```
+
+
+```{r}
+broad_fields <- read_xlsx("data_tables/sed17-sr-tab014.xlsx", skip = 4) %>% 
+  rename(field = 1) %>% 
+  filter(field %!in% sex) %>% 
+  mutate(field = recode(field, 
+                        "Life sciencesb" = "Life sciences",
+                        "Otherc" = "Other")) %>% 
+  pull(field)
+          
+  
+```
+
+
+
+```{r}
+
+fields_sex <- read_xlsx("data_tables/sed17-sr-tab015.xlsx", skip = 3) %>% 
+  rename(field = 1) %>% 
+  select(-contains("change")) %>% 
+  mutate(sex = ifelse(field %in% sex, field, NA)) %>% # filling onlly the aggregation rows
+  fill(sex) %>% # filling forward from the aggregation rows
+  mutate(sex = recode(sex,  "All doctorate recipientsa" = "All")) %>% 
+  pivot_longer(cols = -c("field", "sex"), names_to = "year", values_to = "number") %>%
+  mutate(year = as.numeric(year),
+         number = as.numeric(number)) %>% 
+  filter(!is.na(number), 
+         !field %in% sex, 
+         field != "All doctorate recipientsa") # filtering out the aggregation rows 
+
+fields_sex %>% 
+  filter(sex != "All",
+         field == "Life sciences") %>% 
+  ggplot(aes(x = year, y = number, colour = sex)) + 
+  geom_line() +
+  expand_limits(y = 0)
+
+fields_sex %>% 
+  pivot_wider(names_from = sex, values_from = number) %>% 
+  filter(year == 2017) %>% 
+  mutate(pc_male = Male / All) %>% 
+  arrange(desc(pc_male))
+
+```
+
+```{r}
+year_field_sex <- read_xlsx("data_tables/sed17-sr-tab015.xlsx", skip = 3) %>% 
+  rename(field = 1) %>% 
+  select(-contains("change")) %>% 
+  mutate(field = as.character(fct_recode(field, 
+                                         "All" = "All doctorate recipientsa",
+                                         "Other" = "Otherb"))) %>% 
+  mutate(sex = ifelse(field %in% sex, field, NA_character_)) %>% # filling onlly the aggregation rows
+  mutate(broad_field = ifelse(field %in% broad_fields, field, NA)) %>% 
+  fill(sex, broad_field) %>% # filling forward from the aggregation rows
+  pivot_longer(cols = -c(field, sex, broad_field), names_to = "year", values_to = "number") %>% 
+  filter(field %!in% sex) %>% 
+  filter(!is.na(number)) %>% 
+  mutate(year = as.numeric(year),
+         number = as.numeric(number))
+
+year_field_sex %>% 
+  filter(sex != "All",
+         broad_field == "Mathematics and computer sciences") %>% 
+  ggplot(aes(x = year, y = number, colour = sex)) +
+  geom_line() +
+  expand_limits(y = 0) + 
+  facet_wrap(~ field)
+ 
+broad_fields
+
+year_field_sex %>% select(broad_field) %>% distinct() %>% pull()
+```
+
+```{r}
+year_field_sex %>% 
+  pivot_wider(names_from = sex, values_from = number) %>% 
+  mutate(pc_male = Male / All) %>% 
+  filter(broad_field == "Engineering") %>% 
+  mutate(field = fct_reorder(field, -pc_male)) %>% 
+  ggplot(aes(x = year, y = pc_male, colour = field)) + 
+  geom_line() +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(x = "year",
+       y = "% of PhD recipients reporting as male",
+       title = "Gender breakdown over time within Engineering fields")
+```
+
+
+```{r}
+year_field_sex %>% 
+  pivot_wider(names_from = sex, values_from = number) %>% 
+  mutate(pc_male = Male / All) %>% 
+  filter(broad_field == "Humanities and arts") %>% 
+  mutate(field = fct_reorder(field, -pc_male)) %>% 
+  ggplot(aes(x = year, y = pc_male, colour = field)) + 
+  geom_line() +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(x = "year",
+       y = "% of PhD recipients reporting as male",
+       title = "Gender breakdown over time within Humanities and Arts fields")
+```
+
+```{r}
+year_field_sex
+```
+

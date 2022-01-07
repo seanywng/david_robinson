@@ -1,0 +1,171 @@
+---
+title: "Untitled"
+author: "Sean Ng"
+date: "12/19/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(tidytuesdayR)
+theme_set(theme_light())
+library(janitor)
+library(rKenyaCensus)
+library(sf)
+library(ggthemes)
+
+respace <- function(x) {
+  str_replace_all(x, "([a-z])([A-Z])", "\\1 \\2")
+}
+
+```
+
+```{r}
+tt <-  tt_load("2021-01-19")
+
+gender <-  tt$gender %>% clean_names()
+
+households <- tt$households %>% 
+  clean_names() %>% 
+  mutate(county = str_trim(county)) %>% 
+  mutate(county = respace(county))
+
+crops <- tt$crops %>% clean_names
+  
+glimpse(tt)
+glimpse(households)
+
+
+```
+
+```{r}
+gender %>% 
+  filter(county != "Total") %>% 
+  pivot_longer(2:4, names_to = "gender", values_to = "population") %>% 
+  mutate(gender =str_to_title(gender)) %>% 
+  mutate(county = fct_reorder(county, population, sum)) %>% 
+  ggplot(aes(x = population, y = county, fill = gender)) +
+  geom_col() +
+  scale_x_continuous(labels = comma)
+  
+glimpse(gender)
+
+gender %>% 
+  filter(county != "Total") %>% 
+  mutate(pc_male = male / total) %>% 
+  arrange(desc(pc_male)) %>% 
+  ggplot(aes(x = total, y = pc_male)) +
+  geom_point() +
+  geom_text(aes(label = county), vjust = 1, hjust = 1) +
+  geom_hline(colour = "red", yintercept = 0.5) +
+  scale_y_continuous(labels = percent)
+```
+
+```{r}
+glimpse(households)
+
+households %>% 
+  filter(county != "Kenya") %>% 
+  arrange(desc(average_household_size)) %>% 
+  ggplot(aes(x = population, y = average_household_size)) +
+  geom_point() +
+  geom_text(aes(label = county), size = 2, vjust = 1, hjust = 1) +
+  scale_x_log10(labels = comma)
+```
+
+```{r}
+tt$crops %>% 
+  filter(SubCounty != "KENYA") %>% 
+  pivot_longer(cols = -c(Farming, SubCounty), names_to = "crop_type", values_to = "hhd") %>% 
+  filter(!is.na(hhd)) %>% 
+  mutate(county = str_to_title(SubCounty)) %>% 
+  mutate(county = fct_reorder(county, hhd, sum), 
+         crop_type = fct_reorder(crop_type, hhd, sum)) %>% 
+  ggplot(aes(x = hhd, y = county, fill = crop_type)) +
+  geom_col() +
+  labs(x = "households farming this crop",
+       y = "",
+       fill = "Crop")
+
+ 
+```
+
+```{r}
+
+crop_counties <- tt$crops %>% 
+  filter(SubCounty != "KENYA") %>% 
+  pivot_longer(cols = -c(Farming, SubCounty), names_to = "crop", values_to = "hhd") %>% 
+  mutate(county = str_to_title(SubCounty)) %>% 
+  mutate_all(~replace(., is.na(.), 0)) %>% 
+  mutate(county = fct_reorder(county, hhd, sum), 
+         crop = fct_reorder(crop, hhd, sum)) %>% 
+  select(-SubCounty) %>% 
+  inner_join(households, by = "county") %>% 
+  mutate(pc_farming = hhd / number_of_households)
+
+crop_counties %>% 
+  select(county) %>% unique()
+  
+
+tt$crops %>% 
+  filter(SubCounty != "KENYA") %>% 
+  pivot_longer(cols = -c(Farming, SubCounty), names_to = "crop_type", values_to = "hhd") %>% 
+  filter(!is.na(hhd)) %>% 
+  mutate(county = str_to_title(SubCounty)) %>% 
+  mutate(county = fct_reorder(county, hhd, sum), 
+         crop_type = fct_reorder(crop_type, hhd, sum)) %>% 
+  complete(crop_type, county, fill = list(hhd = 0)) %>% 
+  ggplot(aes(x = crop_type, y = county, fill = hhd)) +
+  geom_tile() +
+  theme(axis.text.x = element_text(angle = 45 , hjust = 1)) +
+  labs(x = "households farming this crop",
+       y = "",
+       fill = "Crop")
+```
+
+```{r}
+crop_counties %>% 
+  arrange(desc(pc_farming)) %>% 
+  ggplot(aes(x = number_of_households, y = pc_farming)) +
+  geom_point() +
+  geom_text(aes(label = county), size = 2, vjust = -1, hjust = 1,
+            check_overlap = TRUE) +
+  scale_y_continuous(labels = percent) +
+  scale_x_continuous(labels = comma) +
+  labs(y = "% of households this crop") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  facet_wrap(~ crop)
+  
+
+```
+
+```{r}
+kenya_shapes <- KenyaCounties_SHP %>% 
+  st_as_sf() %>% 
+  st_simplify(dTolerance = 200) %>% 
+  mutate(county = str_to_title(County)) %>% 
+  left_join(crop_counties, by = c("county"))
+
+```
+
+```{r}
+kenya_shapes %>% 
+  filter(crop == "Avocado") %>% 
+   mutate(hhd = ifelse(hhd == 0, NA_real_, hhd)) %>% 
+  ggplot(aes(fill = hhd)) +
+  geom_sf(size = 0.1) +
+  scale_fill_continuous(trans = "reverse") +
+  theme_map()
+
+crop_counties %>% 
+  filter(crop == "Avocado") %>% 
+  group_by(county) %>% 
+  summarise(avocado = sum(hhd)) %>% arrange(avocado)
+  
+```
+
+```{r}
+
+```
+

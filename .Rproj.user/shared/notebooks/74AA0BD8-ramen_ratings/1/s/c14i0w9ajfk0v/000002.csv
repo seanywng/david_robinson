@@ -1,0 +1,8 @@
+"0","ramen_processed %>% "
+"0","  filter(!is.na(stars)) %>% "
+"0","  unnest_tokens(word, variety) %>% "
+"0","  group_by(word) %>% "
+"0","  summarise(avg_rating = mean(stars, na.rm = TRUE),"
+"0","            n = n()) %>% "
+"0","  arrange(desc(avg_rating)) %>% "
+"0","  filter(n > 9)"
