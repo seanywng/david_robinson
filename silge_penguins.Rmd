@@ -1,0 +1,119 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(tidymodels)
+library(palmerpenguins)
+theme_set(theme_minimal())
+```
+
+```{r}
+penguins %>% glimpse()
+penguins %>% count(species)
+penguins %>% count(species, island)
+```
+
+```{r}
+penguins %>% 
+  filter(!is.na(sex)) %>% 
+  ggplot(aes(x = flipper_length_mm, y = bill_length_mm, colour = sex, size = body_mass_g)) +
+  geom_point(alpha = 0.7) +
+  facet_wrap(~species)
+```
+
+```{r}
+penguins_df <- penguins %>% 
+  filter(!is.na(sex)) %>% 
+  select(-year, -island)
+
+```
+
+```{r}
+set.seed(123)
+penguin_split <- initial_split(penguins_df, strata = sex)
+
+train <- training(penguin_split)
+test <- testing(penguin_split)
+
+set.seed(234)
+penguin_boot <- bootstraps(train)
+
+```
+
+```{r}
+glm_spec <- logistic_reg() %>% 
+  set_engine("glm")
+
+rf_spec <- rand_forest() %>% 
+  set_mode("classification") %>% 
+  set_engine("ranger")
+```
+
+```{r}
+penguin_workflow <- workflow() %>% 
+  add_formula(sex ~ .)
+
+glm_results <- penguin_workflow %>% 
+  add_model(glm_spec) %>% 
+  fit_resamples(resamples = penguin_boot, 
+                control = control_resamples(save_pred = TRUE, verbose = TRUE))
+
+rf_results <- penguin_workflow %>% 
+  add_model(rf_spec) %>% 
+  fit_resamples(resamples = penguin_boot, 
+                control = control_resamples(save_pred = TRUE, verbose = TRUE))
+```
+
+### evaluate modelling
+
+```{r}
+collect_metrics(rf_results)
+
+collect_metrics(glm_results)
+```
+
+```{r}
+glm_results %>% 
+  conf_mat_resampled()
+```
+
+```{r}
+glm_results %>% collect_predictions() %>% 
+  group_by(id) %>% 
+  roc_curve(sex, .pred_female) %>% 
+  autoplot()
+  ggplot(aes(x = 1 - specificity, y = sensitivity, colour = id)) +
+  geom_abline(lty = 2, colour = "gray80", size = 1) +
+  geom_path(show.legend = FALSE, alpha = 0.6, size = 1) +
+  coord_equal()
+  
+  # honestly, just use autoplot
+```
+
+```{r}
+penguin_final <- penguin_workflow %>% 
+  add_model(glm_spec) %>% 
+  # the last_fit argument takes the split, as it will train on the training data and evaluate on the split
+  last_fit(penguin_split)
+```
+
+```{r}
+# these metrics are collected from the testing data
+collect_metrics(penguin_final)
+
+collect_predictions(penguin_final) %>% 
+  conf_mat(sex, .pred_class)
+```
+
+```{r}
+penguin_final$.workflow[[1]] %>% 
+  tidy(exponentiate = TRUE) %>% 
+  arrange(estimate)
+```
+
+
+

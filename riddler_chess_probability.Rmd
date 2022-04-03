@@ -1,0 +1,62 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+# problem 
+
+Say one of the players is better than his opponent to the degree that he wins 20 percent of all games, loses 15 percent of games and that 65 percent of games are drawn. Wins at this match are worth 1 point, draws a half-point for each player, and losses 0 points. In a 12-game match, the first player to 6.5 points wins.
+
+What are the chances the better player wins a 12-game match? How many games would a match have to be in order to give the better player a 75 chance of winning the match outright? A 90 percent chance? A 99 percent chance?
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(tidyverse)
+```
+
+```{r}
+scores <- crossing(trial = 1:1000000,
+         games = 1:12) %>% 
+  mutate(result = sample(c(1, 0, 0.5),
+                         prob = (c(0.2, 0.15, 0.65)),
+                         n(),
+                         replace = TRUE)) %>% 
+  group_by(trial) %>% 
+  summarise(score = sum(result)) 
+
+scores %>% 
+  ggplot(aes(x = score)) + 
+  geom_histogram(binwidth = 0.25) +
+  geom_vline(xintercept = 6.5, colour = "red")
+
+scores %>% 
+  summarise(mean(score >= 6.5))
+```
+
+```{r}
+ngames_sim <- crossing(trial = 1:50000,
+         ngames = round(12 * 2 ^ seq(0, 7, 0.5))) %>%
+  unnest(game = map(ngames, seq_len)) %>% 
+  mutate(result = sample(c(1, 0, 0.5),
+                         prob = (c(0.2, 0.15, 0.65)),
+                         n(),
+                         replace = TRUE)) %>% 
+  group_by(ngames, trial) %>% 
+  summarise(score = sum(result)) %>% 
+  mutate(win = score > ngames / 2) %>% 
+  summarise(win = mean(score > ngames / 2))
+
+ngames_sim %>% 
+  ggplot(aes(x = ngames, y = win)) + 
+  geom_line() +
+  geom_point() + 
+  scale_x_log10() + 
+  scale_y_continuous(labels = scales::percent_format()) + 
+  labs(x = "Number of games", 
+       y = "Probability better player wins")
+
+approx(ngames_sim$win, log(ngames_sim$ngames), xout = 0.75)$y %>% exp()
+approx(ngames_sim$win, log(ngames_sim$ngames), xout = 0.90)$y %>% exp()
+approx(ngames_sim$win, log(ngames_sim$ngames), xout = 0.99)$y %>% exp()
+```
+

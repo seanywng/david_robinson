@@ -1,0 +1,99 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(tidytuesdayR)
+library(scales)
+library(tidytext)
+theme_set(theme_light())
+
+tt <-  tt_load("2021-04-06")
+
+forest_area <-  tt$forest_area
+
+# disabling scientific notation
+options(scipen = 100)
+```
+
+```{r}
+forest_area_country <- forest_area %>%  
+  filter(str_length(code) == 3,
+         year >= 1992) %>% 
+  rename(country = entity) %>% 
+  mutate(forest_area = forest_area / 100)
+
+forest_area_country %>% 
+  mutate(country = fct_lump(country, 9, w = forest_area)) %>% 
+  group_by(country, year) %>% 
+  summarise(forest_area = sum(forest_area), .groups = "drop") %>%  
+  mutate(country = fct_reorder(country, -forest_area)) %>% 
+  ggplot(aes(x = year, y = forest_area, fill = country)) + 
+  geom_area() + 
+  scale_y_continuous(labels = percent) + 
+  expand_limits(y = 0) + 
+  labs(x = "year", 
+       y = "% of global forest area")
+```
+
+```{r}
+forest_area_country %>% 
+  filter(year %in% c(1992, 2020)) %>% 
+  mutate(year = paste0("forest_area_", year)) %>% 
+  pivot_wider(names_from = year, values_from = forest_area) %>% 
+  arrange(desc(forest_area_1992))
+```
+```{r}
+forest <- tt$forest %>% 
+  filter(str_length(code) == 3) %>% 
+  rename(country = entity) 
+
+glimpse(forest)
+
+forest %>% 
+  group_by(year) %>% 
+  summarise(net_forest_conversion = sum(net_forest_conversion))
+
+forest %>% 
+  filter(year == 2015) %>% 
+  arrange(desc(net_forest_conversion)) %>% 
+  slice_max(abs(net_forest_conversion), n = 20) %>%  
+  mutate(country = fct_reorder(country, net_forest_conversion)) %>% 
+  ggplot(aes(net_forest_conversion, country, fill = net_forest_conversion > 0)) + 
+  geom_col() + 
+  scale_x_continuous(labels = comma) + 
+  theme(legend.position = "none") +
+  labs(x = "Net change in forest (hectares",
+       y = "")
+
+forest %>% 
+  group_by(year) %>% 
+  slice_max(abs(net_forest_conversion), n = 15) %>%  
+  ungroup() %>% 
+  mutate(country = reorder_within(country, net_forest_conversion, year)) %>% 
+  ggplot(aes(net_forest_conversion, country, fill = net_forest_conversion > 0)) + 
+  geom_col() + 
+  facet_wrap(~ year, scales = "free_y") +
+  scale_x_continuous(labels = comma) + 
+  scale_y_reordered() +
+  theme(legend.position = "none") +
+  labs(x = "Net change in forest (hectares",
+       y = "")
+
+```
+
+```{r}
+forest %>% 
+  mutate(country = fct_lump(country, 8, w = abs(net_forest_conversion))) %>% 
+  group_by(country, year) %>%  
+  summarise(net_forest_conversion = sum(net_forest_conversion), .groups = "drop") %>%  
+  mutate(country = fct_reorder(country, -net_forest_conversion)) %>% 
+  ggplot(aes(year, net_forest_conversion, colour = country)) + 
+  geom_line() + 
+  scale_y_continuous(labels = comma) +
+  labs(y = "Net change in forest area (hectares)")
+```
+

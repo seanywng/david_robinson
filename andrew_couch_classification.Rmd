@@ -1,0 +1,83 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidymodels)
+library(tidyverse)
+
+df <- read_csv("WA_Fn-UseC_-Telco-Customer-Churn.csv") %>% 
+  janitor::clean_names()
+```
+
+```{r}
+glimpse(df)
+df %>% count(churn)
+
+# need to change levels for churn
+df$churn %>% as.factor() %>% levels()
+```
+
+```{r}
+# data cleaning
+df <- df %>% 
+  drop_na() %>% 
+  mutate_all(as.factor) %>% 
+  mutate(tenure = as.numeric(tenure),
+         monthly_charges = as.numeric(monthly_charges),
+         total_charges = as.numeric(total_charges)) %>% 
+  mutate(churn = fct_rev(churn))
+```
+
+```{r}
+# create train, test and validattion sets
+set.seed(25)
+
+data_split <- initial_split(df, prop = 0.8, strata = churn)
+train_data <- training(data_split)
+test_data <- testing(data_split)
+
+k_folds <- vfold_cv(train_data)
+```
+
+```{r}
+model_rec <- recipe(churn ~ ., data = train_data) %>% 
+  step_rm(customer_id) %>% 
+  step_range(all_numeric()) %>% 
+  step_dummy(all_nominal(), -all_outcomes(), one_hot = TRUE)
+
+model_rec %>% prep() %>% juice() %>% summary()
+```
+
+```{r}
+# metrics
+
+# don't know why it's rejecting specificity 
+# c_metrics <- metric_set(accuracy, sens, spec, roc_auc, mn_log_loss)
+
+c_metrics <- metric_set(accuracy,
+                        sens, 
+                        roc_auc, mn_log_loss)
+
+model_control <-control_grid(save_pred = TRUE)
+```
+
+```{r}
+knn_model <- nearest_neighbor(neighbors = tune()) %>% 
+  set_mode("classification") %>% 
+  set_engine("kknn")
+
+knn_grid <-  grid_regular(parameters(knn_model), levels = 5)
+
+knn_tune <- tune_grid(
+  knn_model, 
+  model_rec, 
+  resamples = k_folds,
+  control = model_control,
+  metrics = c_metrics
+)
+```
+
+

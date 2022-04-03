@@ -1,0 +1,291 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+library(tidyverse)
+library(tidytuesdayR)
+library(scales)
+library(lubridate)
+library(tidytext)
+library(snakecase)
+library(tidylo)
+library(widyr)
+library(tidygraph)
+library(ggraph)
+library(glmnet)
+library(glmnetUtils)
+library(broom)
+theme_set(theme_light())
+
+tt <-  tt_load("2021-04-20")
+```
+
+### reading in dataset 
+
+```{r}
+netflix <- tt$netflix_titles %>% 
+  separate(duration, c("duration", "units"), sep = " ", convert = TRUE) %>% 
+  mutate(units = recode(units, "Season" = "Seasons")) %>% 
+  mutate(date_added = mdy(date_added), 
+         year_added = year(date_added))
+
+```
+
+```{r}
+netflix %>%  
+  ggplot(aes(x = release_year, fill = type)) + 
+  geom_histogram(binwidth = 5) +
+  facet_wrap(~ type, ncol = 1, scales = "free_y")
+
+netflix %>% 
+  count(release_year, type) %>% 
+  group_by(type) %>% 
+  mutate(percent = n / sum(n)) %>% 
+  ggplot(aes(x = release_year, y = percent, colour = type)) + 
+  geom_line()
+
+glimpse(netflix)
+```
+
+```{r}
+netflix %>% 
+  count(rating, sort = TRUE)
+
+netflix %>% 
+  separate(duration, c("duration", "units"), sep = " ", convert = TRUE) %>% 
+  mutate(units = recode(units, "Season" = "Seasons"))
+```
+
+```{r}
+summarise_titles <-  function(tbl) {
+  tbl %>% 
+    summarise(count = n(), 
+              median_duration = median(duration), 
+              median_year = median(release_year)) %>% 
+    arrange(desc(count))
+}
+```
+
+
+```{r}
+netflix %>% 
+  filter(type == "Movie") %>% 
+  mutate(decade = 10 * (release_year %/% 10)) %>% 
+  ggplot(aes(x = decade, y = duration, group = decade)) +
+  geom_boxplot()
+
+netflix  %>% 
+  separate_rows(listed_in, sep = ", ") %>%
+  group_by(type, genre = listed_in) %>% 
+  summarise_titles() %>% 
+  arrange(desc(count)) %>% 
+  filter(type == "Movie") %>% 
+  filter(genre != "Movies") %>% 
+  mutate(genre = fct_reorder(genre, median_duration)) %>% 
+  ggplot(aes(x = median_duration, y= genre)) + 
+  geom_col()
+  
+```
+
+```{r}
+netflix %>% 
+  filter(!is.na(date_added)) %>% 
+  arrange(date_added) %>% 
+  select(type, title, date_added)
+  
+netflix %>% 
+  filter(!is.na(date_added) & !is.na(rating)) %>%
+  mutate(year_added = pmax(year_added, 2015)) %>% 
+  group_by(type) %>% 
+  mutate(rating = fct_lump(rating, 5)) %>% 
+  count(type, year_added, rating) %>% 
+  group_by(type, year_added) %>% 
+  mutate(percent = n / sum(n)) %>% 
+  ggplot(aes(x = year_added, y = percent, fill = rating)) +
+  geom_area() +
+  facet_wrap(~ type)
+  
+```
+
+```{r}
+netflix %>% 
+  filter(!is.na(country)) %>% 
+  count(country = fct_lump(country, 16), 
+        type, 
+        sort = TRUE) %>% 
+  mutate(country = fct_reorder(country, n)) %>% 
+  ggplot(aes(x = n, y = country, fill = type)) +
+  geom_col()
+
+netflix %>% 
+  filter(type == "Movie" & !is.na(country)) %>% 
+  group_by(country) %>% 
+  summarise_titles()
+
+netflix %>% 
+  filter(is.na(director)) %>% 
+  count(country, type, sort = TRUE) %>% 
+  pivot_wider(names_from = type, values_from = n)
+
+```
+
+```{r}
+netflix %>% 
+  filter(!is.na(rating) & !is.na(country)) %>% 
+  group_by(type, country = fct_lump(country, 9)) %>% 
+  summarise(n_mature = sum(rating %in% c("R", "TV-MA", "NC-17")), 
+            n = n(),
+            .groups = "drop") %>% 
+  mutate(pc_mature = n_mature / n, 
+         conf_low = qbeta(0.025, n_mature + 0.5, n - n_mature + 0.5),
+         conf_high = qbeta(0.975, n_mature + 0.5, n - n_mature + 0.5)) %>% 
+  ggplot(aes(x = pc_mature, y = country, colour = type)) + 
+  geom_point(aes(size = n)) +
+  geom_errorbarh(aes(xmin = conf_low, xmax = conf_high), height = 0.1) +
+  scale_x_continuous(labels = percent) +
+  expand_limits(x = 0) + 
+  labs(x = "% of titles that are R/TV-MA")
+
+
+```
+
+### text mining
+
+```{r}
+words <- netflix %>% 
+  unnest_tokens(word, description) %>% 
+  anti_join(stop_words, by = "word")
+  
+words %>%  
+  count(type, word, sort = TRUE) %>% 
+  mutate(type = to_snake_case(type)) %>% 
+  pivot_wider(names_from = type, values_from = n) %>% 
+  mutate(total = movie + tv_show) %>% 
+  arrange(desc(total)) %>% 
+  head(100) %>% 
+  ggplot(aes(x = movie, y = tv_show)) + 
+  geom_point() +
+  geom_text(aes(label = word), vjust = 1, hjust = -1) + 
+  scale_x_log10() + 
+  scale_y_log10()
+```
+
+```{r}
+words %>% 
+  count(type, word) %>% 
+  bind_log_odds(type, word, n) %>% 
+  arrange(desc(log_odds_weighted)) %>% 
+  group_by(type) %>% 
+  top_n(10, log_odds_weighted) %>% 
+  ungroup() %>% 
+  mutate(word = fct_reorder(word, log_odds_weighted)) %>% 
+  ggplot(aes(x = log_odds_weighted, y = word)) +
+  geom_col() +
+  facet_wrap(~ type, scales = "free_y")
+```
+
+### network graph
+
+```{r}
+set.seed(2021)
+
+words %>% 
+  distinct(type, title, word) %>% 
+  add_count(word, name = "word_total") %>% 
+  filter(word_total >= 40) %>% 
+  pairwise_cor(word, title, sort = TRUE) %>% 
+  filter(correlation >= 0.1) %>% 
+  igraph::graph_from_data_frame() %>% 
+  ggraph(layout = "fr") + 
+  geom_edge_link(aes(alpha = correlation)) + 
+  geom_node_point() +
+  geom_node_text(aes(label = name), check_overlap = TRUE) +
+  theme(legend.position = "none")
+  
+```
+
+```{r}
+word_genre_odds <- words %>% 
+  distinct(type, title, word, genre = listed_in) %>%
+  add_count(word, name = "word_total") %>% 
+  filter(word_total >= 25) %>% 
+  separate_rows(genre, sep = ", ") %>% 
+  filter(fct_lump(genre, 9) != "Other") %>% 
+  count(genre, word) %>% 
+  bind_log_odds(genre, word, n)
+  
+```
+
+
+### consider unnest_token(ngram, n=2)
+```{r}
+word_genre_odds %>% 
+  group_by(genre) %>% 
+  top_n(10, log_odds_weighted) %>% 
+  ungroup() %>% 
+  mutate(word = reorder_within(word, log_odds_weighted, genre)) %>% 
+  ggplot(aes(x = log_odds_weighted, y = word, fill = genre)) + 
+  geom_col() + 
+  facet_wrap(~ genre, scales = "free") + 
+  theme(legend.position = "none") +
+  scale_y_reordered() +
+  labs(x = "Log-odds of a word's specificity to genre")
+```
+
+### lasso regression
+
+```{r}
+word_ratings <- words %>% 
+  count(type, title, rating, word) %>% 
+  filter(!is.na(rating)) %>% 
+  mutate(mature = rating %in% c("TV-MA", "R", "NC-17")) %>% 
+  add_count(word, name = "word_total") %>% 
+  filter(word_total >= 30)
+```
+
+```{r}
+word_matrix <- word_ratings %>% 
+  cast_sparse(title, word, n)
+
+y <- word_ratings$mature[match(rownames(word_matrix), word_ratings$title)]
+
+mod2 <- cv.glmnet(word_matrix, y, family = "binomial")
+
+plot(mod2)
+```
+
+
+```{r}
+mod <- cv.glmnet(mature ~ word, data = word_ratings, family = "binomial")
+
+plot(mod)
+
+mod$glmnet.fit %>% 
+  tidy() %>% 
+  mutate(term = str_remove_all(term, "word")) %>% 
+  filter(lambda == mod$lambda.min) %>% 
+  top_n(20, abs(estimate)) %>% 
+  mutate(term = fct_reorder(term, estimate)) %>% 
+  ggplot(aes(x = estimate, y = term)) +
+  geom_col()
+
+```
+
+```{r}
+mod2$glmnet.fit %>% 
+  tidy() %>% 
+  filter(lambda == mod2$lambda.1se) %>% 
+  top_n(40, abs(estimate)) %>% 
+  mutate(term = fct_reorder(term, estimate)) %>% 
+  ggplot(aes(x = estimate, y = term)) +
+  geom_col()
+```
+
+```{r}
+
+```
+

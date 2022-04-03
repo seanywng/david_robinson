@@ -1,0 +1,37 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+```{r}
+N <- 4
+
+simulate_round <- function() {
+  # every column is a cio, every row is a ball number
+  m <- matrix(0L, nrow = N, ncol = N)
+  
+  # throwing phase
+  while (any(colSums(m) == 0)) {
+    
+    ball <-  sample(4, 1)
+    cup <-  sample(4, 1)
+    
+    m[ball, cup] <- m[ball, cup] + 1
+    
+}
+  
+  all(diag(m) > 0)
+
+}
+```
+
+```{r}
+data_frame(round = 1:1000) %>% 
+  mutate(win = map_lgl(row_number(), simulate_round))
+```
+

@@ -1,0 +1,124 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(tidytuesdayR)
+library(scales)
+theme_set(theme_light())
+library(ggthemes)
+
+tt <- tt_load("2020-09-15")
+
+kids <- tt$kids
+```
+
+```{r}
+kids %>% distinct(variable)
+
+kids %>% 
+  filter(variable == "PK12ed") %>% 
+  group_by(year) %>% 
+  summarise(total = sum(inf_adj)) %>% 
+  ggplot(x = year, y = total) +
+  geom_line() + 
+  expand_limits(y = 0) + 
+  scale_y_continuous(labels = dollar)
+
+
+kids %>% 
+  filter(variable == "PK12ed", 
+         state %in% sample(unique(state), 30)) %>% 
+  mutate(state = fct_reorder(state, inf_adj_perchild, max)) %>% 
+  ggplot(aes(x = year, y = 1000 * inf_adj_perchild)) +
+  geom_line() + 
+  geom_vline(xintercept = 2009, colour = "red", lty = 2) +
+  expand_limits(y = 0) + 
+  scale_y_continuous(labels = dollar) + 
+  facet_wrap(~ state) + 
+  theme_tufte() +
+  labs(x = "Year", 
+       y = "Inflation-adjusted spending per child")
+
+kids %>% 
+  filter(variable == "PK12ed") %>% 
+  group_by(state) %>%
+  mutate(change = inf_adj_perchild / first(inf_adj_perchild) -1) %>%  
+  ungroup() %>% 
+  mutate(state = fct_reorder(state, change, max, .desc = TRUE)) %>% 
+  ggplot(aes(x = year, y = change)) +
+  geom_hline(yintercept = 0, colour = "grey") +
+  geom_line() +
+  geom_vline(xintercept = 2009, colour = "red", lty = 2) +
+  scale_y_continuous(labels = percent, breaks = c(0, 1, 2)) + 
+  facet_wrap(~ state) + 
+  theme_tufte() +
+  labs(x = "", 
+       y = "Increase in inflation-adjusted spending per child relative to 1997")
+
+
+
+kids %>%  
+  filter(variable == "highered") %>% 
+  plot_change_facet() +
+  geom_vline(xintercept = 2009, colour = "red", lty = 2) + 
+  theme_tufte() + 
+  labs(x = "", 
+       y = "Increase in inflation-adjusted spending per child relative to 1997",
+       title = "How has higher education spending changed per state?",
+       subtitle = "Red line shows 2009 (global financial crisis)")
+
+plot_faceted <-  function(tbl, y_axis) {
+  tbl %>%  
+    mutate(state = fct_reorder(state, {{y_axis}}, max, .desc = TRUE)) %>% 
+    ggplot(aes(year, {{y_axis}})) +
+    geom_hline(yintercept = 0, colour = "grey") + 
+    geom_line() + 
+    facet_wrap(~ state)
+}
+
+plot_change_faceted <- function(tbl, variable) {
+  tbl %>%  
+    group_by(state, variable) %>%
+    mutate(change = inf_adj_perchild / first(inf_adj_perchild) -1) %>%  
+    ungroup() %>% 
+    plot_faceted(change) + 
+    scale_y_continuous(labels = percent)
+    
+}
+
+kids %>%  
+  filter(variable == "PK12ed") %>%  
+  plot_change_faceted(inf_adj_perchild) + 
+  geom_vline(xintercept = 2009, colour = "red", lty = 2) + 
+  theme_tufte() +
+  labs(x = "",
+       y = "Increase in inflation-adjusted spending per child relative to 1997",
+       title = "How has per-student K-12 spending changed per state?", 
+       subtitle = "Red line shows 2009 (global financial crisis)") 
+
+kids %>%  
+  filter(variable == "PK12ed") %>%  
+  plot_faceted(inf_adj_perchild * 1000) + 
+  geom_vline(xintercept = 2009, colour = "red", lty = 2) + 
+  theme_tufte() +
+  scale_y_continuous(labels = dollar) + 
+  labs(x = "",
+       y = "Increase in inflation-adjusted spending per child relative to 1997",
+       title = "How has per-student K-12 spending changed per state?", 
+       subtitle = "Red line shows 2009 (global financial crisis)") 
+
+```
+
+```{r}
+kids %>%
+  filter(year == 2016,
+         variable == "PK12ed")
+
+
+```
+
