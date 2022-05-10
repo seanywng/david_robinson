@@ -158,7 +158,7 @@ by_year %>%
 
 ```{r}
 by_country_year %>% 
-  filter(country %in% c("United States", "Canada", "Mali", "Sudan", "Ghana", "Italy", 
+  filter(country %in% c("United States", "Canada", "Mali", "Singapore", "Ghana", "Italy", 
                         "Spain", "Germany", "Israel")) %>% 
   mutate(country = fct_reorder(country, pc_yes)) %>% 
   ggplot(aes(x = year, y = pc_yes)) +
@@ -173,7 +173,7 @@ by_country_year %>%
 
 ```{r}
 by_country_year %>% 
-  filter(country %in% c("United States", "Canada", "Mali", "Sudan", "Ghana", "Italy", 
+  filter(country %in% c("United States", "Canada", "Mali", "Singapore", "Ghana", "Italy", 
                         "Spain", "Germany", "Israel")) %>% 
   mutate(country = fct_reorder(country, pc_yes)) %>% 
   ggplot(aes(x = year, y = pc_yes, colour = country)) +
@@ -215,7 +215,7 @@ unvotes %>%
   summarise(correlation = cor(Canada, United_States))
 ```
 ```{r}
-# this is game-changing; jesus christ widyr is such a good package
+# widyr is such a good package
 unvotes %>% 
   pairwise_cor(country, rcid, vote_number, sort = TRUE) %>% 
   filter(item1 == "United States")

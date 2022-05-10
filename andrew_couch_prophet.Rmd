@@ -1,0 +1,75 @@
+---
+title: "Untitled"
+output: html_document
+date: '2022-04-30'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(lubridate)
+library(tidymodels)
+library(prophet)
+df <- read_csv("https://raw.githubusercontent.com/facebook/prophet/main/examples/example_retail_sales.csv")
+```
+
+```{r}
+df %>% 
+  ggplot(aes(x = ds, y = y)) + 
+  geom_line() +
+  geom_smooth(method = "lm")
+```
+
+```{r}
+split <- initial_time_split(df)
+```
+
+```{r}
+m <- prophet(df = df %>% arrange(ds))
+
+future <- make_future_dataframe(m, periods = 6, freq = "month", include_history = TRUE)
+
+forecast <- predict(m, future)
+
+glimpse(forecast)
+
+prophet_plot_components(m, forecast)
+
+plot(m, forecast) +
+  add_changepoints_to_plot(m)
+```
+
+```{r}
+prophet(changepoint.prior.scale = 10,
+        seasonality.prior.scale = 10, 
+        holidays.prior.scale = 10, 
+        changepoints = )
+
+# changepoints are basically a vector of dates
+```
+
+# how would we assess our models in a machine learning framework 
+
+```{r}
+rolling_origin(df %>%  arrange(ds), initial = 52, assess = 6)  %>% 
+  mutate(train = map(splits, analysis),
+         test = map(splits, assessment)) %>% 
+  select(id, train, test) %>%  
+  pivot_longer(-id) %>% 
+  unnest(value) %>% 
+  filter(id %in% c("Slice001", "Slice002", "Slice003")) %>% 
+  ggplot(aes(x = ds, y = y, colour = name, group = id)) + 
+  geom_line() + 
+  facet_wrap(~id, scales = "fixed")
+  
+```
+
+```{r}
+sliding_period(df %>% arrange(ds), ds, period = "year", lookback = Inf, assess_stop = 1) 
+```
+
+```{r}
+glimpse(aggdata)
+```
+

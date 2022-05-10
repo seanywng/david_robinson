@@ -1,0 +1,81 @@
+---
+title: "Flexdashboard penguins"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(palmerpenguins)
+library(tidyverse)
+library(ggridges)
+
+df <- penguins
+```
+
+Column {sidebar}
+-----------------------------------------------------------------------
+
+```{r}
+selectInput("v_species", label = "Species", choices = c("All", "Adelie", "Chinstrap", "Gentoo"), selected = "All")
+```
+
+
+Column {data-width=500}
+-----------------------------------------------------------------------
+
+### Chart A
+
+```{r}
+
+df %>% 
+  select(-island, -sex, - year) %>% 
+  pivot_longer(-species) %>% 
+  group_by(name) %>% 
+  mutate(value = scale(value)) %>% 
+  ungroup() %>% 
+  ggplot(aes(x = value, y = name, fill = species)) +
+  geom_density_ridges(alpha = 0.7) +
+  theme(legend.position = "top") +
+  labs(x = "", y = "")
+
+```
+
+Column {data-width=350}
+-----------------------------------------------------------------------
+
+### Chart B
+
+```{r}
+df %>% 
+  select(-island, -sex, - year) %>% 
+  pivot_longer(-species) %>% 
+  group_by(name) %>% 
+  mutate(value = scale(value)) %>% 
+  ungroup() %>%
+  ggplot(aes(x = name, y = value, colour = species)) +
+  geom_boxplot() + 
+  theme(legend.position = "top") +
+  labs(x = "", y = "")
+```
+
+### Chart C
+
+```{r}
+
+df %>% 
+  count(species, island) %>% 
+  drop_na() %>% 
+  group_by(species) %>% 
+  mutate(n = n /sum(n)) %>% 
+  ggplot(aes(x = species, y = n, fill = island)) + 
+  geom_col() + 
+  scale_y_continuous(labels = scales::label_percent()) +
+  theme(legend.position = "top") +
+  labs(x = "", y = "")
+
+```
+

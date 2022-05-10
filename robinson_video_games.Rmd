@@ -1,0 +1,111 @@
+---
+title: "Untitled"
+output: html_document
+date: '2022-04-26'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(scales)
+library(lubridate)
+library(plotly)
+
+theme_set(theme_light())
+
+games <- read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-03-16/games.csv') %>% 
+  mutate(avg_peak_perc = parse_number(avg_peak_perc) / 100) %>% 
+  mutate(date = ymd(paste(year, month, 1))) %>%
+  filter(date > min(date)) %>%
+  mutate(month = fct_reorder(month, month(date)))
+  
+
+```
+
+
+```{r}
+glimpse(games)
+
+games %>% 
+  count(date) %>% 
+  ggplot(aes(x = date, y = n)) + 
+  geom_col()
+```
+
+```{r}
+games %>% 
+  group_by(date) %>% 
+  summarise(median_avg = median(avg)) %>% 
+  ggplot(aes(x = date, y = median_avg)) +
+  geom_line() + 
+  expand_limits(y = 0)
+```
+
+```{r}
+games %>%  
+  group_by(year, month) %>% 
+  summarise(median_avg = median(avg)) %>% 
+  ggplot(aes(x = month, y = median_avg)) +
+  geom_line(aes(colour = factor(year), group = year)) + 
+  expand_limits(y = 0) + 
+  labs(x = "Month of year",
+       y = "Median popularity of a game on Steam",
+       title = "Seasonal trend in Steam games")
+  
+```
+
+```{r}
+summarise_games <- function(tbl) {
+  tbl %>% 
+    summarise(median_avg = median(avg), 
+              median_peak = median(peak))
+}
+```
+
+```{r}
+games %>% 
+  group_by(date) %>% 
+  summarise_games() %>% 
+  ggplot(aes(x = date, y = median_peak)) +
+  geom_line() +
+  expand_limits(y = 0)
+```
+
+# Distribution of game popularity
+
+```{r}
+games %>% 
+  filter(date == max(date)) %>%
+  ggplot(aes(x = avg)) +
+  geom_histogram() + 
+  scale_x_log10(labels = comma_format(accuracy = 1), breaks = 10^seq(0, 5)) + 
+  labs(x = "Average number of players in February 2021")
+  
+```
+
+```{r}
+games %>% 
+  filter(date == max(date)) %>%
+  ggplot(aes(x = avg_peak_perc)) +
+  geom_histogram()  
+  
+  scale_x_log10(labels = comma_format(accuracy = 1), breaks = 10^seq(0, 5)) + 
+  labs(x = "Average number of players in February 2021")
+```
+
+```{r}
+g <- games %>% 
+  filter(avg > 1000) %>% 
+  filter(date == max(date)) %>% 
+  arrange((avg_peak_perc)) %>% 
+  ggplot(aes(x = avg, y = 1 / avg_peak_perc, label = gamename)) + 
+  geom_point() + 
+  # geom_text(vjust = 1, hjust = 1, check_overlap = TRUE) +
+  scale_y_log10() + 
+  scale_x_log10(labels = comma) +
+  labs(x = "Average number of players", y = "Ratio of Peak / Average")
+
+ggplotly(g)
+```
+

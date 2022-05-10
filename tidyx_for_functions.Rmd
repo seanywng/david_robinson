@@ -1,0 +1,174 @@
+---
+title: "Untitled"
+output: html_document
+date: '2022-05-07'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(here)
+library(skimr)
+library(janitor)
+
+theme_set(theme_light())
+
+baseball_wins <- read_csv("https://raw.githubusercontent.com/thebioengineer/TidyX/master/TidyTuesday_Explained/023-Mailbag_and_Expected_Wins/Pythagorean%20Wins.csv") %>% 
+  clean_names()
+
+```
+
+
+```{r}
+glimpse(baseball_wins)
+
+baseball_wins %>% skim()
+```
+
+```{r}
+baseball_ratio <- baseball_wins %>%  
+  mutate(scoring_ratio = runs_scored / runs_allowed, 
+         win_pct = wins / (wins + losses))
+```
+
+Calculating the Pythagorean wins percentage for each team 
+
+$PyrhWinPct = Scoring Ratio^i / (1 + Scoring Ratio^i)$
+
+The exponent `i` will initially `3` but we will optimise this with our `for` loop. 
+
+To change odds into a percentage, you divide it by 1 + odds 
+
+```{r}
+i <- 3
+
+br_pythag <- baseball_ratio %>%
+  mutate(win_pct_scale = scoring_ratio^i / (1 + scoring_ratio^i))
+
+
+  
+```
+
+```{r}
+baseball_error <- br_pythag %>% 
+  mutate(error = win_pct - win_pct_scale)
+
+baseball_error %>% 
+  ggplot(aes(x = error)) + 
+  geom_histogram(alpha = .5) + 
+  geom_vline(xintercept = 0, size = 1.2, colour = "red", linetype = "dashed") + 
+  labs(title = "Error between actual win% and pythagorean win%")
+
+```
+
+```{r}
+baseball_error %>% 
+  ggplot() + 
+  geom_histogram(aes(x = win_pct), fill = "light blue", alpha = .6) + 
+  geom_histogram(aes(x = win_pct_scale), fill = "light green", alpha = .5) + 
+  annotate("text", x = .3, y = 70, label = "Actual win%", colour = "light blue", size = 4) + 
+  annotate("text", x = .3, y = 60, label = "Pyathagorean win%", colour = "light green", size = 4) + 
+  ggtitle("Actual win% and Pythagorean win%")
+```
+
+```{r}
+mae <- mean(abs(baseball_error$error))
+```
+
+### how to optimise exponent, using for loops 
+
+```{r}
+i_options <- seq(from = .5, to = 4, by = .1)
+
+# creating a df for the for loop 
+# pre-allocating an empty df will speed up for loops a lot
+
+mae_results <- data.frame("exp" = i_options, "results" = NA)
+
+df2 <-  baseball_ratio[, 3:6]
+
+```
+
+```{r}
+for(i in 1:length(i_options)){
+  
+  win_pct <-  df2$wins / (df2$wins + df2$losses)
+  
+  pred_win_pct <- (df2$runs_scored / df2$runs_allowed)^i_options[i] / ((1 + df2$runs_scored / df2$runs_allowed)^i_options[1])
+  
+  mae_results[i, 2] <- mean(abs(win_pct - pred_win_pct))
+}
+```
+
+### optimising with functions and tidyverse
+
+```{r}
+
+# abstractifying the calculation 
+
+pythagorean_wins <-  function(scored, allowed, i){
+  
+  p_win_pct <- (scored / allowed)^i / (1 + (scored / allowed)^i)
+  
+  return(p_win_pct)
+}
+```
+
+```{r}
+for( i in 1:length(i_options)){
+  
+  baseball_ratio_options <- baseball_ratio %>%  
+    mutate(pred_win_pct = pythagorean_wins(
+      scored = runs_scored, 
+      allowed = runs_allowed, 
+      i = i_options[[i]]
+    )) %>% 
+    select(win_pct, pred_win_pct)
+  
+  mae_results[i, 2] <- mean(abs(baseball_ratio_options[[1]] - baseball_ratio_options[[2]]))
+}
+```
+
+### plottinf the exponent as a line
+
+```{r}
+mae_results %>%  
+  ggplot(aes(x = exp, y = results)) + 
+  geom_line() + 
+  labs(x = "Exponent", y = "Mean absolute error", 
+       title = "Mean absolute erro for different exponents in Pyathagorean wins formula")
+```
+
+
+```{r}
+min(mae_results$results)
+
+mae_results %>% filter(results == min(results))
+
+```
+
+### optimising with the tidyverse approach 
+
+```{r}
+mae_tibble <- seq(from = .5, to = 4, by = .1) %>% 
+  
+  map_dfr(function(i){
+    
+    baseball_ratio_options <-  baseball_ratio %>% 
+      mutate(pred_win_pct = pythagorean_wins(
+        scored = runs_scored, 
+        allowed = runs_allowed, 
+        i = i
+      )) %>%  
+      select(win_pct, pred_win_pct)
+    
+    tibble(
+      exp = i,  
+      results = mean(abs(baseball_ratio_options[[1]] - baseball_ratio_options[[2]]))
+    )
+  })
+
+mae_tibble %>% 
+  filter(results == min(results))
+```
+

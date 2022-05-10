@@ -1,0 +1,140 @@
+---
+title: "Untitled"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: scroll
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(tidyverse)
+library(highcharter)
+library(gt)
+library(htmltools)
+library(viridis)
+library(janitor)
+
+# Importing data
+books <- read_csv('bestsellers with categories.csv')
+
+# Removing duplicates
+books <- books %>% 
+  distinct(Name, .keep_all = TRUE) %>% 
+  janitor::clean_names()
+
+# Importing second data
+songs <- read_csv('charts.csv')
+
+songs <- songs %>% 
+  clean_names() %>% 
+  select(-last_week)
+
+# Removing duplicates and select the max value
+songs_clean <- songs %>% 
+  group_by(song, artist) %>% 
+  summarise(weeks_on_board = max(weeks_on_board))
+```
+
+
+Books
+=======================================================================
+
+Column {.tabset .tabset-fade data-width=650}
+-----------------------------------------------------------------------
+
+### Most popular authors
+
+```{r}
+
+custom_colours <- viridis::mako(15)
+
+books %>% 
+  group_by(author) %>% 
+  summarise(reviews = sum(reviews)) %>% 
+  arrange(desc(reviews)) %>% 
+  head(15) %>% 
+  hchart("column", hcaes(x = author, y = reviews, color = custom_colours)) %>% 
+  hc_add_theme(hc_theme_google()) %>% 
+  hc_tooltip(pointFormat = "<b>Number of reviews: </b> {point.y} <br>") %>% 
+  hc_title(text = "Most popular authors by numnber of reviews",
+           style = list(fontSize = "25px", fontWeight = "bold")) %>% 
+  hc_subtitle(text = "2009 to 2019",
+              style = list(fontSize = "16px")) %>% 
+  hc_credits(enabled = TRUE, text = "@seanywng")
+
+```
+
+### Most popular books
+
+```{r}
+custom_colours2 <- viridis::plasma(15)
+
+books %>% 
+  arrange(desc(reviews)) %>% 
+  head(15) %>% 
+  hchart("bar", hcaes(x = name, y = reviews, color = custom_colours2)) %>% 
+  hc_add_theme(hc_theme_google()) %>% 
+  hc_tooltip(pointFormat = "<b>Number of reviews: </b> {point.y} <br>") %>% 
+  hc_title(text = "Most popular books by number of reviews",
+           style = list(fontSize = "25px", fontWeight = "bold")) %>% 
+  hc_subtitle(text = "2009 to 2019", style = list(fontSize = "16px")) %>% 
+  hc_xAxis(title = FALSE)
+  
+```
+
+
+Column {data-width=350}
+-----------------------------------------------------------------------
+
+### {.no-padding data-height = 350}
+
+### Chart B
+
+```{r}
+
+colours3 <- viridis::mako(n = 2)
+
+# most common genres
+
+books %>%  
+  group_by(genre) %>% 
+  summarise(count = n()) %>% 
+  hchart("pie", hcaes(x = genre, y = count, color = colours3)) %>% 
+  hc_tooltip(pointFormat = "<b> Proportion: </b> {point.percentage:,.2f}%") %>% 
+  hc_title(text = "Most common genres from 2009 to 2019", 
+           style = list(fontSize = "15px", fontWeight = "bold"))
+
+```
+
+### {.no-padding data-height = 350}
+
+### Chart C
+
+```{r}
+# datatable
+
+books_gt <- books %>% 
+  filter(user_rating >= 4.9) %>% 
+  arrange(desc(reviews)) %>% 
+  select(name, author)
+
+# html table
+
+div(style = "height:600px; overflow-y: scroll", gt(books_gt) %>% 
+  tab_header(title = md("Best books from 2009 to 2019"),
+              subtitle = md("By user rating")) %>% 
+  opt_table_font(font = list(google_font("Chivo"), default_fonts())) %>% 
+  tab_style(location = cells_column_labels(columns = everything()),
+            style = list(cell_borders(sides = "bottom",
+                                      weight = px(2)),
+                         cell_text(weight = "bold"))) %>% 
+  tab_options(table.font.size = px(12L),
+              table.border.top.style = "none",
+              column_labels.border.bottom.width = 2,
+              table_body.border.top.style = "none", 
+              data_row.padding = px(3))
+)
+
+```
+

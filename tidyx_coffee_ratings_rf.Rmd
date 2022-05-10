@@ -1,0 +1,177 @@
+---
+title: "Untitled"
+output: html_document
+date: '2022-05-08'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(RColorBrewer)
+library(tidytuesdayR)
+library(randomForest)
+library(pROC)
+library(caret)
+
+theme_set(theme_light())
+
+### load data ####
+coffee_ratings <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-07-07/coffee_ratings.csv')
+
+`%out%` <- Negate(`%in%`)
+
+
+```
+
+```{r warning=FALSE}
+mean_data <- coffee_ratings %>%
+  summarise_at(.vars = c("sweetness", "aroma", "flavor", "body", "aftertaste"), .funs = c("mean")) %>%
+  pivot_longer(cols = sweetness:aftertaste, names_to = "category", values_to = "endpoints")
+
+coffee_data <- coffee_ratings %>%  
+  group_by(country_of_origin) %>%  
+  summarise_at(.vars = c("sweetness", "aroma", "flavor", "body", "aftertaste"), .funs = c("mean")) %>% 
+  pivot_longer(cols = sweetness:aftertaste, names_to = "category", values_to = "values") %>%  
+  left_join(mean_data) %>%  
+  mutate(pos_neg = ifelse(endpoints - values > 0, "pos", "neg")) %>% 
+  drop_na(country_of_origin)
+
+coffee_data %>%  
+  mutate(country_of_origin = fct_rev(country_of_origin)) %>% 
+  ggplot(aes(x = country_of_origin, y = values)) + 
+  geom_point() + 
+  coord_flip() + 
+  geom_hline(aes(yintercept = endpoints), lwd = 1.5, colour = "grey") + 
+  geom_segment(aes(x = country_of_origin, xend = country_of_origin, y = endpoints, yend = values, colour = "pos_neg"), lwd = 1.2) + 
+  labs(x = "Country", y = "Score") + 
+  scale_colour_brewer(palette = "BrGr") + 
+  facet_wrap(~category) + 
+  theme_ft_rc() + 
+  theme(legend.position = "none") 
+```
+
+# random forest
+
+```{r}
+glimpse(coffee_ratings)
+
+# total_cup_points will be the independent variable
+
+model_df <- coffee_ratings %>% 
+  select(total_cup_points, species, country_of_origin, processing_method, aroma:moisture)
+```
+
+```{r}
+model_df %>%  
+  summarise(across(everything(), ~sum(is.na(.)))) %>% 
+  gather()
+
+model_df <- model_df %>% 
+  select(-processing_method) %>% 
+  filter(!is.na(country_of_origin)) %>% 
+  filter(total_cup_points != 0) %>% 
+  mutate(cup_points_bin = cut_number(total_cup_points, n = 4)) %>% 
+  select(-total_cup_points)
+```
+
+### EDA
+
+```{r}
+model_df %>%  
+  ggplot(aes(x = total_cup_points)) +
+  geom_histogram()
+
+quantile(model_df$total_cup_points)
+
+model_df %>%  
+  count(cup_points_bin) %>%  
+  ggplot(aes(x = cup_points_bin, y = n)) + 
+  geom_col() + 
+  geom_label(aes(label = n))
+
+model_df%>%
+  select(aroma:moisture) %>%
+  gather() %>%
+  ggplot(aes(x = value)) +
+  geom_histogram() +
+  facet_wrap(~key, scales = "free_x")
+```
+
+
+```{r}
+model_df_factor <- model_df %>% 
+  mutate(species = as.factor(species),
+         country_of_origin = as.factor(country_of_origin))
+
+set.seed(7945)
+
+N <- nrow(model_df_factor)
+
+train_id <- sample(x = 1:N, 
+                   size = round(N * .7, 1), 
+                   replace = FALSE)
+
+train <- model_df_factor[train_id, ]
+test <-  model_df_factor[-train_id, ]
+```
+
+
+### building the random forest
+
+```{r}
+num_trees <- 1000
+
+# `mtry` is the number of features to randomly be selscted at each split of the tree
+# if you don't know where to start, begin your `mtry` with the sqrt of the number of predictors
+# if it is a regression random forest, begin your `mtry` at one third of the number of predictors  
+
+fit_coffee <-  randomForest(cup_points_bin ~ ., data = train, 
+                            ntree = num_trees, mtry = 4)
+
+# print model output
+fit_coffee
+
+# variable importance
+importance(fit_coffee)
+varImpPlot(fit_coffee)
+
+# making a nicer plot
+data.frame(importance(fit_coffee)) %>% 
+  arrange(desc(MeanDecreaseGini)) %>% 
+  mutate(variable = rownames(.)) %>% 
+  ggplot(aes(x = MeanDecreaseGini, y = reorder(variable, MeanDecreaseGini))) + 
+  geom_point(size = 5) + 
+  geom_errorbarh(aes(xmin = 0, xmax = MeanDecreaseGini), height = .1) + 
+  labs(x = "Mean Decrease Gini", y = "", 
+       title = "Random Forest Variable Importance Plot") + 
+  theme(axis.text = element_text(size = 13, face = "bold"), 
+        axis.title = element_text(size = 15, face = "bold"), 
+        plot.title = element_text(size = 20), 
+        plot.background = element_rect(fill = "light grey"), 
+        panel.background = element_rect(fill = "white"))
+  
+  
+```
+
+
+### confusion matrix
+
+```{r}
+table(observed = train$cup_points_bin, 
+      predicted = fit_coffee$predicted)
+```
+
+### predicting on the test data 
+
+```{r}
+test$predicted_class <-  predict(fit_coffee, newdata = test, type = "response")
+
+# test set confusion matrix
+pred_table <- table(observed = test$cup_points_bin, 
+      predicted = test$predicted_class)
+
+# calculating test set accuracy 
+paste("Model Accuracy", 
+      paste(round(sum(diag(pred_table)) / sum(pred_table), 3) * 100, "%", sep = ""), sep = "=")
+```
+

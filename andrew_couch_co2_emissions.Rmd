@@ -1,0 +1,177 @@
+---
+title: "Untitled"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(scipen = 999)
+library(tidyverse)
+library(broom)
+food <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-02-18/food_consumption.csv')
+```
+
+```{r}
+glimpse(food)
+```
+
+```{r}
+food %>% 
+  pivot_longer(cols = -c(country, food_category), names_to = "feature", values_to = "value") %>% 
+  ggplot(aes(y = value, colour = feature)) + 
+  geom_boxplot() + 
+  facet_wrap(~ feature, scales = "fixed") + 
+  scale_y_log10()
+  
+```
+
+```{r}
+food %>% 
+  pivot_longer(cols = -c(country, food_category), names_to = "feature", values_to = "value") %>% 
+  ggplot(aes(x = feature,  y = value, colour = feature)) + 
+  geom_boxplot() +
+  geom_jitter(alpha = .1) +
+  facet_wrap(~ feature, scales = "fixed") + 
+  scale_y_log10()
+```
+
+### efficient consumption processes
+
+for every kilogram of food consumed, how much CO2 was emitted?
+
+
+```{r}
+food %>%
+  filter(consumption != 0) %>% 
+  mutate(co2_food = co2_emmission / consumption) %>% 
+  group_by(food_category) %>% 
+  summarise(mean = mean(co2_food)) %>%
+  mutate(food_category = reorder(food_category, mean)) %>% 
+  ggplot(aes(x = food_category, y = mean, fill = food_category)) + 
+  geom_col() + 
+  coord_flip() +
+  scale_fill_discrete(guide = "none") + 
+  labs(title = "Lamb, goat and beef are the most inefficient food categories", 
+       subtitle = "Rice is more inefficient than poultry and eggs")
+```
+
+```{r}
+food %>%  
+  select(-country) %>% 
+  pivot_longer(cols = -food_category, names_to = "feature", values_to = "value") %>% 
+  ggplot(aes(x = food_category, y = value, colour = food_category)) + 
+  geom_boxplot() + 
+  facet_wrap(~feature, scales = "fixed") + 
+  theme(legend.position = "none") +
+  scale_y_log10() + 
+  coord_flip()
+```
+
+```{r}
+food %>% 
+  group_by(food_category) %>% 
+  summarise(consumption = mean(consumption), 
+            co2_emmission = mean(co2_emmission)) %>%
+  ggplot(aes(x = consumption, y = co2_emmission, colour = food_category)) +
+  geom_abline(slop = 1, lty = 2, colour = "red") +
+  geom_point() + 
+  geom_text(aes(label = food_category), hjust = 1, vjust = 1) +  
+  scale_x_log10() + 
+  scale_y_log10() +
+  theme(legend.position = "none")
+```
+
+```{r}
+food %>% 
+  group_by(food_category) %>% 
+  summarise(consumption = mean(consumption), 
+            co2_emission = mean(co2_emmission)) %>%
+  mutate(residuals = co2_emission - consumption) %>% 
+  ggplot(aes(x = consumption, y = co2_emission, colour = food_category)) +
+  geom_abline(slop = 1, lty = 2, colour = "red") +
+  geom_point() +
+  geom_segment(aes(xend = consumption, yend = consumption, x = consumption, y = co2_emission)) + 
+  geom_text(aes(label = food_category), hjust = -0.1, vjust = 1, size = 2) +  
+  scale_x_log10() + 
+  scale_y_log10() +
+  theme(legend.position = "none")
+```
+
+```{r}
+food %>%  
+  group_by(food_category) %>% 
+  top_n(consumption, n = 5) %>% 
+  arrange(desc(food_category, consumption))
+```
+
+```{r}
+# countries that appear more than 
+food %>%  
+  group_by(food_category) %>% 
+  top_n(consumption, n = 5) %>% 
+  arrange(desc(food_category, consumption)) %>% 
+  ungroup() %>% 
+  count(country, sort = TRUE) %>% 
+  filter(n != 1)
+```
+```{r}
+# i do not know how to make this work 
+
+food %>%
+  mutate(vegan = ifelse(food_category %in% c("Wheat and Wheat Products", "Rice", "Soybeans", "Nuts inc. Peanut Butter"), 
+                        "non_animal", "animal")) %>% 
+  select(consumption, co2_emmission, vegan) %>% 
+  pivot_longer(cols = -vegan, names_to = "type", values_to = "value") %>% 
+  mutate(type = factor(type), 
+         vegan = factor(vegan)) %>% 
+  do(test = t.test(value~vegan, data = (.))) %>% 
+  tidy(test)
+  
+food %>% 
+  mutate(non_animal = if_else(food_category %in% c("Wheat and Wheat Products", "Rice", "Soybeans", "Nuts inc. Peanut Butter"),
+                        1, 0)) %>% 
+  select(consumption, co2_emmission, non_animal) %>% 
+  gather(key = "type", value = "value", -non_animal) %>% 
+  mutate(type = as.factor(type)) %>%
+  group_by()
+  
+  unnest()
+  nest(-type) %>% 
+  mutate(test = map(cor.test(as.numeric(.$value), as.numeric(.$non_animal), method = "spearman")),
+         tidied = map(test, tidy)) %>% 
+  mutate()
+  do(test = t.test(value ~ non_animal, data = (.))) %>%
+  tidy(test)
+  nest(data = -type) %>% 
+  mutate(test = map(data, ~ cor.test()),
+         tidied = map(test, tidy)) %>% 
+  unnest(tidied)
+  ggplot(aes(x = type, y = p.value)) + geom_col() + geom_hline(yintercept = .05) 
+
+
+```
+
+
+```{r}
+food %>%
+  mutate(vegan = ifelse(food_category %in% c("Wheat and Wheat Products", "Rice", "Soybeans", "Nuts inc. Peanut Butter"), 
+                        "non_animal", "animal")) %>%  
+  group_by(country) %>% 
+  top_n(consumption, n = 1) %>% 
+  ungroup() %>% 
+  group_by(food_category) %>% 
+  count(vegan)
+```
+
+```{r}
+food %>%
+  mutate(vegan = ifelse(food_category %in% c("Wheat and Wheat Products", "Rice", "Soybeans", "Nuts inc. Peanut Butter"), 
+                        "non_animal", "animal")) %>%  
+  select(-country) %>% 
+  pivot_longer(cols = -c(vegan, food_category), names_to = "var", values_to = "value") %>% 
+  ggplot(aes(x = value, fill = vegan)) + 
+  geom_density(alpha = 0.5) + 
+  scale_x_log10() + 
+  facet_wrap(~ var, nrow = 2, scale = "free")
+```
+
