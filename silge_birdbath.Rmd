@@ -1,0 +1,164 @@
+---
+title: "Untitled"
+output: html_document
+date: '2022-05-16'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(scales)
+library(tidymodels)
+library(patchwork)
+
+bird_baths <- readr::read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-08-31/bird_baths.csv")
+
+theme_set(theme_light())
+```
+
+```{r}
+bird_baths %>%
+  count(urban_rural)
+
+glimpse(bird_baths)
+
+top_birds <- bird_baths %>% 
+  filter(is.na(urban_rural)) %>% 
+  arrange(-bird_count) %>%  
+  slice_max(bird_count, n = 15) %>%  
+  pull(bird_type)
+```
+
+
+```{r}
+
+segment_data <- bird_baths %>% 
+  filter(!is.na(urban_rural) & bird_type %in% top_birds) %>% 
+  group_by(urban_rural, bird_type) %>% 
+  summarise(mean = mean(bird_count), .groups = "drop") %>% 
+  ungroup() %>% 
+  arrange(-mean) %>%  
+  pivot_wider(names_from = urban_rural, values_from = mean)
+
+p1 <- bird_baths %>% 
+  filter(!is.na(urban_rural) & bird_type %in% top_birds) %>% 
+  group_by(urban_rural, bird_type) %>% 
+  summarise(mean = mean(bird_count), 
+            count = sum(bird_count), .groups = "drop") %>% 
+  ungroup() %>% 
+  arrange(-mean) %>%
+  ggplot(aes(x = mean, y = bird_type)) + 
+  geom_segment(
+    data = segment_data, 
+    aes(x = Rural, xend = Urban, 
+    y = bird_type, yend = bird_type),
+    alpha = .7, colour = "gray70", size = .7
+  ) + 
+  geom_point(aes(colour = urban_rural), size = 2) + 
+  scale_x_continuous(labels = percent) + 
+  labs(x = "Probability of seeing bird", y = "", colour = "")
+```
+
+```{r}
+bird <- 
+  bird_baths %>% 
+   filter(!is.na(urban_rural) & 
+            bird_type %in% top_birds) %>% 
+  mutate(bird_count = if_else(bird_count > 0, "bird", "no_bird")) %>%  
+  mutate_if(is.character, as.factor)
+  
+```
+
+### building a model 
+
+```{r}
+
+set.seed(123)
+split <- initial_split(bird, strata = bird_count)
+
+train <- training(split)
+test <- testing(split)
+
+set.seed(234)
+bird_folds <- vfold_cv(train, strata = bird_count)
+
+glimpse(bird_baths)
+
+```
+
+
+```{r}
+# equivalent to a glm, with family = "binomial"
+glm_spec <- logistic_reg()
+
+glimpse(train)
+
+rec_basic <- recipe(bird_count ~ urban_rural + bird_type, data = train) %>% 
+  step_dummy(all_nominal_predictors())
+
+# a workflow just makes it easy to carry around 
+wf_basic <- workflow(rec_basic, glm_spec)
+
+ctrl_pred <- control_resamples(save_pred = TRUE)
+
+basic <- fit_resamples(wf_basic, bird_folds, control = ctrl_pred)
+```
+
+```{r}
+# augment will add on a prediction 
+augment(basic) %>%  
+  roc_curve(bird_count, .pred_bird) %>% 
+  autoplot()
+```
+
+```{r}
+# prep is to a recipe what fit is to a model 
+
+# adding interactions 
+rec_interact <- 
+  rec_basic %>%  
+  step_interact(~ starts_with("urban_rural"):starts_with("bird_type"))
+
+wf_interact <- workflow(rec_interact, glm_spec)
+
+interact <- fit_resamples(wf_interact, bird_folds, control = ctrl_pred)
+```
+
+```{r}
+augment(interact) %>%  
+  roc_curve(bird_count, .pred_bird) %>% 
+  autoplot()
+```
+
+```{r}
+bird_fit <- fit(wf_interact, train)
+```
+
+```{r}
+new_bird_data <- 
+  tibble(bird_type = top_birds) %>% 
+  crossing(urban_rural = c("Urban", "Rural"))
+
+augment(bird_fit, new_bird_data)
+
+predict(bird_fit, new_bird_data, type = "conf_int")
+
+bird_preds <- augment(bird_fit, new_bird_data) %>%  
+  bind_cols(predict(bird_fit, new_bird_data, type = "conf_int"))
+
+p2 <- bird_preds %>% 
+  ggplot(aes(x = .pred_bird, y = bird_type, colour = urban_rural)) +
+  geom_errorbar(aes(xmin = .pred_lower_bird, xmax = .pred_upper_bird), 
+                width = .4, size = 1.2, alpha = .3) + 
+  geom_point(size = 2) +
+  scale_x_continuous(labels = percent) + 
+  labs(x = "Predicted probability of seeing bird", y = "", colour = "")
+
+```
+
+
+```{r}
+p1 + p2
+```
+
