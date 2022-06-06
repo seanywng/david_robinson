@@ -1,0 +1,126 @@
+---
+title: "Untitled"
+output: html_document
+date: '2022-06-05'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(broom)
+library(rsample)
+sports_raw <- read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2022/2022-03-29/sports.csv')
+theme_set(theme_minimal())
+options(scipen = 999)
+
+```
+
+```{r}
+glimpse(sports_raw)
+sports_raw %>% count(sports)
+```
+
+```{r}
+sports_parsed <- sports_raw %>% 
+  mutate(sports = case_when(
+    str_detect(sports, "Swimming") ~ "Swimming and Diving",
+    str_detect(sports, "Diving") ~ "Swimming and Diving", 
+    str_detect(sports, "Track") ~ "Track", 
+    TRUE ~ sports
+  ))
+
+sports_parsed %>% count(sports)
+```
+```{r}
+# Reorganising the data a little bit
+sports <- sports_parsed %>% 
+  select(year, institution_name, sport = sports, participants = partic_men, revenue = rev_men, expenditure = exp_men) %>% 
+  mutate(gender = "men") %>% 
+  bind_rows(
+    sports_parsed %>% 
+      select(year, institution_name, sport = sports, participants = partic_women, revenue = rev_women, expenditure = exp_women) %>% 
+      mutate(gender = "women")
+  ) %>% 
+  na.omit()
+
+
+```
+
+```{r}
+sports %>% 
+  mutate(sport = fct_reorder(sport, expenditure)) %>% 
+  ggplot(aes(x = expenditure, y = sport, fill = gender)) + 
+  geom_boxplot(alpha = .5, 
+               # this makes them all the same width
+               position = position_dodge(preserve = "single")) + 
+  scale_x_continuous(trans = "log10", labels = scales::dollar) + 
+  labs(y = "", 
+       fill = "", 
+       title = "Ependitures per team") + 
+  scale_fill_brewer(palette = "Dark2") + 
+  theme(legend.position = "top")
+```
+
+
+# building some linear models 
+
+```{r}
+ignore_sport <- 
+  lm(expenditure ~ gender + participants, data = sports)
+
+account_sport <- 
+  lm(expenditure ~ gender + participants + sport, data = sports)
+
+```
+
+```{r}
+tidy(ignore_sport) %>% 
+  mutate(sport = "ignore") %>% 
+  bind_rows(tidy(account_sport) %>% 
+              mutate(sport = "account")) %>% 
+  filter(!str_detect(term, "sport") & term != "(Intercept)") %>% 
+  ggplot(aes(x = estimate, y = term, colour = sport)) + 
+  geom_vline(xintercept = 0, lty = 2, colour = "grey50") + 
+  geom_errorbar(aes(xmin = estimate + std.error, xmax = estimate - std.error), 
+                size = 1.4, alpha = .7, width = .1) + 
+  geom_point(size = 3) + 
+  scale_x_continuous(labels = scales::dollar)
+```
+
+# bootstrapping intervals 
+Sometimes you want more robust intervals 
+When you use bootstrapping, you just fit the model a whole bunch of times using resamples of the data 
+
+```{r}
+set.seed(123)
+ignore_sport_intervals <- 
+  reg_intervals(expenditure ~ gender + participants, data = sports, times = 500)
+
+set.seed(234)
+account_sport_intervals <- 
+  reg_intervals(expenditure ~ gender + participants + sport, data = sports, times = 500)
+
+```
+
+```{r}
+account_sport_intervals %>% 
+  filter(str_detect(term, "sport")) %>% 
+  arrange(desc(.estimate))
+```
+
+```{r}
+# you no longer have to tidy since rsamples already produces a tidy output
+ignore_sport_intervals %>% 
+  mutate(sport = "ignore") %>% 
+  bind_rows(account_sport_intervals %>% 
+              mutate(sport = "account")) %>% 
+  filter(!str_detect(term, "sport")) %>% 
+  ggplot(aes(x = .estimate, y = term, colour = sport)) + 
+  geom_vline(xintercept = 0, lty = 2, colour = "grey50") + 
+  geom_errorbar(aes(xmin = .lower, xmax = .upper), 
+                size = 1.4, alpha = .7, width = .1) + 
+  geom_point(size = 3) + 
+  scale_x_continuous(labels = scales::dollar)
+```
+
+The intervals have changed -- the different types of intervals show difference types of answers

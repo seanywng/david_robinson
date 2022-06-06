@@ -1,0 +1,245 @@
+---
+title: "NHS_R_purrr"
+output: html_document
+date: '2022-06-05'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+```{r}
+# Creating an argument for rolling dice
+# This is an example of a function factory
+
+dice <- function(sides) {
+  function(rolls) {
+    sample(1:sides, rolls, TRUE)
+  }
+}
+
+six_sided <- dice(6)
+
+six_sided(2)
+```
+
+
+# Named vectors
+
+```{r}
+named_vector <- c(a = 1, b = 2, c = 3)
+
+# Now you can access a value using the name 
+
+named_vector[["a"]]
+
+# you can also set names using the set_names argument in purrr 
+
+letters[1:3] %>% set_names()
+```
+
+# Dataframes
+
+A dataframe is just a named list, but every tiem in the list is a vector. The names of the items in the list are the colummn name. Each item in a dataframe is a vector 
+
+# Iteration 
+
+```{r}
+my_values <-  c(1, 4, 5, 3, 2)
+
+my_fun <- function(x) {
+  3 * x + 2
+}
+
+# because R is vectorised through out, you can simply run: 
+
+my_fun(my_values)
+
+# and it will iterate over every part of th the list. 
+# However not all functions work like this and sometimes you'll have to write a loop
+# Not all functions are vectorised
+```
+
+```{r}
+# doing the same thing but with a loop
+
+# First, we set up a vector that is the same length as my_values so that it can accept the results 
+
+results <- numeric(length(my_values))
+
+# Then, we set a loop to iterate over the values 
+
+for (i in 1:length(my_values)) {
+  results[[i]] <- my_fun(my_values[[i]])
+}
+
+results
+```
+
+The problems with writing a loop include:
+* Forgetting to the initialise the results vector
+* Incorrectly setting up the results vector 
+* Mess up the indexing, for example writing `my_values[[1]]` instead of `my_values[[i]]`
+
+# Map 
+
+However the function `map` can replace loops. It takes the input that you wish to iterate over, and a function that you want to evaluate each item from the input against 
+
+```{r}
+results <-  map(my_values, my_fun)
+
+results
+# But of course, this returns a list instead of a vector
+# Which is why if you do something like this (below), it will throw out an error
+
+mean(results)
+
+# The solution is then to use a function to tell what map to return i.e. 
+
+results <- map_dbl(my_values, my_fun)
+
+results 
+
+# Of course, one can also use an anonymous function 
+
+map_dbl(my_values, ~ 3 * .x + 2)
+
+# Use the formula syntax if it's really simple 
+```
+
+```{r}
+# If your function has more than one argument, these can be passed in the "..." of the map argument
+
+my_fun <- function(x, y) {
+  3 * x + y
+}
+
+map_dbl(my_values, my_fun, y = 2)
+```
+
+# Using map with dataframes
+
+```{r}
+# This produces far more valuable information than 
+map_chr(iris, class)
+# This
+class(iris)
+```
+
+```{r}
+# This first collects the unique values in each column, then it prints out the number of unique columns 
+iris %>% 
+  map(unique) %>% 
+  map_dbl(length)
+
+# We're able to chain functions together to obtain a more complex result --
+# I think this would be particularly useful for this like is.na
+```
+
+You can also use map with a mutate statement. This is particularly useful if you want to create a column of values from another column, but that function is not vectorised. 
+
+
+```{r}
+files <- dir("./nhs_webinars/fp_with_purrr/ae_attendances", 
+             "^\\d{4}-\\d{2}-\\d{2}\\.csv$", 
+             full.names = TRUE)
+
+head(files)
+
+# If you were to run read_csv with `files`, it would produce a very weird result 
+# Instead, we should use map to iterate over all of these files to call the read_csv function 
+
+map(files, read_csv, col_types = "ccddd")
+
+# However, it would be even better to return one single dataframe by binding all rows
+
+map_dfr(files, read_csv, col_types = "ccddd")
+
+# Additionally, `map_dfr` has a really neat trick up its sleeves, which is the `.id` argument, 
+# which takes the names of each item in the vector and adds it to a column with the name that you give it. 
+# However, we first need to create a named_vector
+
+ae_attendances <- files %>% 
+  set_names() %>% 
+  map_dfr(read_csv, col_type = "ccddd", .id = "filename") %>% 
+  mutate(period = str_extract(filename, 
+                              r"(\d{4}-\d{2}-\d{2}(?=\.csv$))") %>% 
+           lubridate::ymd())
+```
+
+# More variants of map
+
+```{r}
+# `map2` takes two vectors as arguments, .x and .y and a binary function .f
+map2_dbl(1:3, 4:6, ~ .x * .y)
+
+# `pmap` is a generalisation of map that works over as many many vectors as you have 
+
+list(1:3, 4:6, 7:9) %>% 
+  pmap_dbl(function(x, y, z) x * y + z)
+
+# Unless you have a named vector, then purrr will match the list items to the function arguments 
+list(a = 1:3, b = 4:6, c = 7:9) %>% 
+  pmap_dbl(function(c, b, a) a * b + c)
+```
+
+# Walk 
+
+Walk is like map, except it is designed for functions that you run solely for the side effects. 
+Instead of returning the results of the initial function, `walk` returns the input vector. 
+`Walk` is useful for operations like saving plots to disk. 
+
+# Demo 
+
+```{r}
+ae_attendances %>% 
+  filter(str_starts(org_code, "R")) %>% 
+  group_by(org_code, period) %>% 
+  summarise_at("attendances", sum) %>% 
+  # He thinks it's a lot neater than: 
+  # summarise(attendances = sum(attendances))
+  nest() %>% 
+  #if you nest, it will nest by how it is grouped
+  mutate(has_3_years = map_dbl(data, nrow) == 36)
+  # This checks if each tibble has 36 rows, which is equivalent to 3 years of data
+  # you can also just filter it outright with filter(map_dbl(data, nrow) == 36)
+
+# If we were just to use nrow on its own, it would throw up an error of 
+# Result must have length 1, not 0
+
+# Creating a plot function
+plot_fn <- function(org_code, data) {
+  data %>% 
+    ggplot(aes(x = period, y = attendances)) + 
+    geom_line() + 
+    geom_point() + 
+    labs(title = org_code)
+}
+
+# Creating a new folder to store the plots 
+dir.create("./nhs_webinars/fp_with_purrr/ae_plots")
+
+ae_attendances %>% 
+  filter(str_starts(org_code, "R")) %>% 
+  group_by(org_code, period) %>% 
+  summarise_at("attendances", sum) %>% 
+  nest() %>% 
+  filter(map_dbl(data, nrow) == 36) %>% 
+  # Creating a column in a dataframe for the plot? Let's see how this works 
+  mutate(plot = map2(org_code, data, plot_fn)) %>% 
+  mutate(filename = paste0("ae_plot/", org_code, ".png")) %>% 
+  ungroup() %>% 
+  select(-org_code, -data) %>% 
+  head(10) %>% 
+  # I have no idea why this is not working 
+  pwalk(ggsave)
+  pwalk(ggsave(paste0(filename), plot = plot, width = 11, height = 8.5, units = "in"))
+  
+ggsave()
+  filename = paste0(filename, ".pdf"), plot = temp_chart, width = 11, height = 8.5, units = "in"
+# This prints out what the data grouping
+groups(.Last.value)
+  
+```
+

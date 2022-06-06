@@ -1,0 +1,115 @@
+---
+title: "Untitled"
+output: html_document
+date: '2022-06-05'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(jsonlite)
+library(listviewer)
+library(tidyverse)
+
+```
+
+```{r}
+food_mkts_raw <- fromJSON("https://raw.githubusercontent.com/jennybc/purrr-tutorial/gh-pages/foodMarkets/retail_food_markets.json", 
+                          simplifyVector = FALSE)
+```
+
+```{r}
+glimpse(food_mkts_raw)
+str(food_mkts_raw$data, max.level = 1, list.len = 5)
+
+food_mkts <- food_mkts_raw[["data"]]
+jsonedit(food_mkts_raw[[c("meta", "view")]])
+
+# grabbing the column names 
+(cnames <- food_mkts_raw[[c("meta", "view", "columns")]] %>% 
+    map_chr("name"))
+# writing in the column names on the data
+food_mkts <- food_mkts %>%  
+  map(set_names, cnames)
+
+food_mkts %>% map_chr("DBA Name") %>% head()
+```
+
+```{r}
+# almost evething in the food_mkts can be extracted in a simple way, except for `Location`, 
+# which holds unparsed JSON data that must be handled separately 
+
+to_process <- cnames[cnames != "Location"]
+
+# The goal here is to create a df with one row per food market 
+
+food_mkts[1:3] %>% 
+  map_df(`[`, to_process)
+
+# However, map_df doesn't handle the NULLs in the JSON dataset very well. 
+
+food_mkts[[67]][14:16]
+
+# Look at the error produced by trying to read this into a df 
+data.frame(food_mkts[[67]][14:16])
+
+# In order to not break the workflow, a custom function must be created 
+# The `safe_extract` function replaces NULL with NA: 
+
+safe_extract <- function(l, wut) {
+  res <- l[wut]
+  null_here <- map_lgl(res, is.null)
+  res[null_here] <- NA
+  res
+}
+
+# this now works properly 
+safe_extract(food_mkts[[67]][14:16])
+
+# Building the df 
+mkts <- food_mkts %>%  
+  map_df(safe_extract, to_process)
+
+```
+
+### Alternative -- columns first 
+
+This is, arguably, the proper way to do this -- building the columsn first. 
+
+```{r}
+# naive approach for two variables
+
+food_mkts %>% {
+  tibble(
+    dba_name = map_chr(., "DBA Name"), 
+    city = map_chr(., "City")
+  )
+}
+
+# Admittedly, though the author thinks that doing this for 22 variables is a drag, 
+# it is not unreasonable. But I do have to admit that this is probably an unsatisfactory approach 
+# for dealing with the number of variables inside the wdi dataset 
+```
+
+```{r}
+# There is, however, a more programmatic option 
+# Here the automatic type conversion is exploited from the "rows-first" approach
+# Below is a dataset with one row per variable, providing the expected class and the appropriate map_* function 
+
+var_df <- mkts %>% 
+  map_chr(class) %>% 
+  # enframe convers named atomic vectors or lists to one- or two-column dataframes
+  enframe(name = ".f", value = "type") %>%
+  mutate(var_name = .f %>% tolower() %>% gsub("\\s+", "_", .), 
+         mapper = c(integer = "map_int", character = "map_chr")[type], 
+                    .null = list(integer = NA_integer_, 
+                                 character = NA_character_)[type])
+```
+
+```{r}
+# scaling up do.call
+
+mkts_df <- invoke_map_df(.f = set_names(var_df$mapper, var_df$var_name), 
+                         .x = transpose(var_df[c(".f", ".null")]), 
+                         food_mkts)
+```
+
