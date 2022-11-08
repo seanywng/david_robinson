@@ -1,0 +1,146 @@
+---
+title: "Untitled"
+output: html_document
+date: '2022-10-18'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(tidytuesdayR)
+
+theme_set(theme_light())
+```
+
+
+```{r}
+inventories <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2022/2022-09-06/inventories.csv.gz')
+inventory_sets <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2022/2022-09-06/inventory_sets.csv.gz')
+sets <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2022/2022-09-06/sets.csv.gz')
+```
+
+```{r}
+glimpse(inventories)
+glimpse(inventory_sets)
+glimpse(sets)
+```
+
+
+```{r}
+
+legos <- tibble(file = dir("./legos", full.names = TRUE)) %>%
+  mutate(data = map(file, read_csv)) %>% 
+  extract(file, 
+          "name", 
+          "legos/(.*).csv.gz") %>% 
+  deframe()
+  
+```
+
+
+```{r}
+legos$sets %>% 
+  count(year) %>% 
+  ggplot(aes(x = year, y = n)) + 
+  geom_col() + 
+  labs(y = "Number of LEGO sets")
+
+legos$sets %>% 
+  group_by(name) %>% 
+  summarise(n_sets = n(), 
+            year_first = min(year), 
+            year_last = max(year)) %>% 
+  arrange(desc(n_sets))
+```
+
+```{r}
+sets_themes <- legos$sets %>% 
+  left_join(legos$themes %>% 
+              select(id, theme_name = name), 
+            by = c(theme_id = "id")) %>% 
+  mutate(num_parts = na_if(num_parts, 0))
+
+sets_themes %>% 
+  count(theme_name, sort = TRUE) %>% 
+  head(25) %>% 
+  mutate(theme_name = fct_reorder(theme_name, n)) %>% 
+  ggplot(aes(x = n, y = theme_name)) +
+  geom_col() +
+  labs(x = "Number of sets", 
+       y = "", 
+       title = "Most common LEGO themes")
+
+sets_themes %>% 
+  group_by(theme_name) %>% 
+  summarise(n_sets = n(), 
+            median_parts = median(num_parts, 
+                                  na.rm = TRUE)) %>%
+  arrange(desc(n_sets)) %>% 
+  filter(n_sets >= 75) %>% 
+  ggplot(aes(x = n_sets, y = median_parts)) +
+  geom_point() +  
+  geom_text(aes(label = theme_name), 
+            hjust = 1, 
+            vjust = 1, 
+            check_overlap = TRUE) + 
+  geom_smooth(method = "lm") + 
+  scale_x_log10() +
+  scale_y_log10() + 
+  expand_limits(x = 30)
+
+sets_themes %>% 
+  group_by(theme_name) %>% 
+  summarise(n_sets = n(), 
+            median_parts = median(num_parts,
+                                  na.rm = TRUE)) %>%
+  arrange(desc(n_sets)) %>% 
+  head(25) %>% 
+  mutate(theme_name = fct_reorder(theme_name, 
+                                  median_parts)) %>% 
+  ggplot(aes(x = median_parts, 
+             y = theme_name)) +
+  geom_col() +
+  labs(title = "Most and least complex LEGO themes", 
+       subtitle = "Only the 25 most popular sets", 
+       x = "Median number of parts in a set")
+  
+
+  
+```
+
+
+```{r}
+sets_themes %>% 
+  filter(fct_lump(theme_name, 25) != "Other") %>% 
+  mutate(theme_name = fct_reorder(theme_name, 
+                                  num_parts, 
+                                  na.rm = TRUE)) %>% 
+  ggplot(aes(num_parts, theme_name)) +
+  geom_boxplot() +
+  scale_x_log10() + 
+  labs(title = "Most and least complex LEGO themes", 
+       subtitle = "Only the 25 most popular sets", 
+       x = "Number of parts", 
+       y = "")
+  
+```
+
+Changes over time, apparently not really. Complexity has not increased over time. 
+
+```{r}
+sets_themes %>% 
+  mutate(decade = 10 * (year %/% 10)) %>% 
+  ggplot(aes(x = decade, 
+             y = num_parts, 
+             group = decade)) + 
+  geom_boxplot() +
+  geom_jitter(height = 0, 
+              width = 3, 
+              alpha = .1) + 
+  scale_y_log10()
+  summarise(n_sets = n(), 
+            median_parts = median(num_parts, 
+                                  na,rm = TRUE)) 
+```
+
+

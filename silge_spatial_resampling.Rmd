@@ -1,0 +1,127 @@
+---
+title: "Untitled"
+output: html_document
+date: '2022-11-05'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(tidymodels)
+library(tidycensus)
+library(spatialsample)
+
+theme_set(theme_light())
+```
+
+```{r}
+
+drought_raw <- read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2022/2022-06-14/drought-fips.csv')
+
+drought <- drought_raw %>%
+  filter(State == "TX", lubridate::year(date) == 2021) %>%
+  group_by(GEOID = FIPS) %>%
+  summarise(DSCI = mean(DSCI)) %>%
+  ungroup()
+```
+
+```{r}
+drought %>% glimpse()
+
+census_api_key("36edc3fefbd60e601c683d4f623735fbce3e67d3", 
+               install = TRUE)
+```
+
+
+```{r}
+tx_med_income <- get_acs(
+  geography = "county", 
+  state = "TX", 
+  variables = "B19013_001", 
+  year = 2020, 
+  geometry = TRUE
+)
+```
+
+```{r}
+glimpse(tx_med_income)
+```
+
+```{r}
+drought_sf <- tx_med_income %>% 
+  left_join(drought, 
+            by = "GEOID")
+
+glimpse(drought_sf)
+```
+
+```{r}
+drought_sf %>%
+  ggplot(aes(fill = DSCI)) + 
+  geom_sf(alpha = .9, colour = NA) +
+  scale_fill_viridis_c()
+```
+
+```{r}
+drought_sf %>% 
+  ggplot(aes(x = DSCI, y = estimate)) + 
+  geom_point(alpha = .8, size = 2) + 
+  geom_smooth(method = "loess", se = FALSE) + 
+  geom_smooth(method = "lm", se = FALSE, colour = "red") + 
+  scale_y_log10() + 
+  scale_x_log10()
+```
+
+### Model 
+
+```{r}
+set.seed(123)
+
+folds <- spatial_block_cv(drought_sf, v = 10)
+
+```
+
+```{r}
+# This shows all the folds; there are 254 counties 
+autoplot(folds)
+
+# Addtitionally, what is furthermore possible is to view the individual counties in each fold, 
+# showing the split between analysis and assessment groups
+
+autoplot(folds$splits[[9]])
+```
+
+```{r}
+drought_res <-  workflow(estimate ~ DSCI, 
+         linear_reg()) %>% 
+  fit_resamples(folds, 
+                control = control_resamples(save_pred = TRUE))
+
+collect_predictions(drought_res)
+```
+
+```{r}
+drought_rmse <- drought_sf %>% 
+  # This is to match the output of the collect_predictions
+  mutate(.row = row_number()) %>% 
+  left_join(collect_predictions(drought_res)) %>% 
+  group_by(GEOID) %>% 
+  rmse(estimate, .pred) %>% 
+  select(GEOID, .estimate)
+  
+```
+### Result 
+
+Here we use spatial resampling to evaluate the performance of a model
+
+
+```{r}
+drought_sf %>% 
+  left_join(drought_rmse) %>% 
+  ggplot(aes(fill = .estimate)) + 
+  geom_sf(colour = NA, alpha = .8) + 
+  labs(fill = "RMSE") + 
+  scale_fill_viridis_c(labels = scales::dollar_format())
+```
+

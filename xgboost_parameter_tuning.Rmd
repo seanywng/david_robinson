@@ -1,0 +1,246 @@
+---
+title: "Untitled"
+output: html_document
+date: '2022-11-05'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(tidymodels)
+library(scales)
+library(vip)
+
+theme_set(theme_light())
+```
+
+
+```{r}
+vb_matches <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-05-19/vb_matches.csv', guess_max = 76000)
+
+```
+
+
+```{r}
+glimpse(vb_matches)
+
+vb_parsed <- vb_matches %>%
+  transmute(
+    circuit, 
+    gender, 
+    year, 
+    w_attacks = w_p1_tot_attacks + w_p2_tot_attacks, 
+    w_kills = w_p1_tot_kills + w_p2_tot_kills, 
+    w_errors = w_p1_tot_errors + w_p1_tot_errors, 
+    w_aces = w_p1_tot_aces + w_p2_tot_aces, 
+    w_blocks = w_p1_tot_blocks + w_p2_tot_blocks, 
+    w_serve_errors = w_p1_tot_serve_errors + w_p2_tot_serve_errors, 
+    w_blocks = w_p1_tot_blocks + w_p2_tot_blocks, 
+    w_digs = w_p1_tot_digs + w_p2_tot_digs, 
+    l_attacks = l_p1_tot_attacks + l_p2_tot_attacks, 
+    l_kills = l_p1_tot_kills + l_p2_tot_kills, 
+    l_errors = l_p1_tot_errors + l_p1_tot_errors, 
+    l_aces = l_p1_tot_aces + l_p2_tot_aces, 
+    l_blocks = l_p1_tot_blocks + l_p2_tot_blocks, 
+    l_serve_errors = l_p1_tot_serve_errors + l_p2_tot_serve_errors, 
+    l_blocks = l_p1_tot_blocks + l_p2_tot_blocks, 
+    l_digs = l_p1_tot_digs + l_p2_tot_digs, 
+  ) %>% 
+  na.omit()
+```
+
+```{r}
+vb_df <- bind_rows(
+  vb_parsed %>%
+    select(circuit, gender, year, w_attacks:w_digs) %>%
+    rename_with( ~ str_remove_all(., "w_"),
+                 w_attacks:w_digs) %>%
+    mutate(win = "win"),
+  vb_parsed %>%
+    select(circuit, gender, year, l_attacks:l_digs) %>%
+    rename_with( ~ str_remove_all(., "l_"),
+                 l_attacks:l_digs) %>%
+    mutate(win = "lose")
+) %>% 
+  mutate_if(is.character, factor)
+```
+
+
+```{r}
+vb_df %>% 
+  pivot_longer(attacks:digs, 
+               names_to = "stat", 
+               values_to = "value") %>% 
+  ggplot(aes(x = gender, 
+             y = value, 
+             colour = win, 
+             fill = win)) +  
+  geom_boxplot(alpha = .4) + 
+  facet_wrap(~stat, 
+             scales = "free_y", 
+             nrow = 2) + 
+  labs(y = "", 
+       colour = "", 
+       fill = "")
+  
+```
+
+
+# Building a model 
+
+```{r}
+set.seed(123)
+
+vb_split <- initial_split(vb_df, strata = win)
+train <- training(vb_split)
+test <- testing(vb_split)
+```
+
+
+XGBoost is based on decision trees and it doesn't need much pre-processing. So we will go straight to making the model specification. 
+
+Whilst pre-processing is minimal, there are, however, numerous parameters to tune.
+
+Hyperparameters cannot be trained -- the only way to tune them is to train a large number of models and select the best. 
+
+### Model specification 
+
+```{r}
+xgb_spec <- boost_tree(
+  trees = 1000, 
+  tree_depth = tune(), 
+  min_n = tune(), 
+  loss_reduction = tune(),
+  sample_size = tune(),
+  # How much randomness is included in the model
+  mtry = tune(), 
+  learn_rate = tune()
+) %>% 
+  set_engine("xgboost") %>% 
+  set_mode("classification")
+```
+
+
+After setting up the spec, usually we would use a tuning grid. However, this will take very long. But we can make use of grid_latin_hypercube, which, if I understand correctly, creates a n-dimensional space. 
+
+
+```{r}
+xgb_grid <- grid_latin_hypercube(
+  tree_depth(), 
+  min_n(), 
+  loss_reduction(), 
+  sample_size = sample_prop(), 
+  # You need to give it the training data as it doesn't know what the max number of predictors is
+  finalize(mtry(), train), 
+  learn_rate(), 
+  # You usually want to go higher than 20
+  size = 20
+)
+```
+
+
+```{r}
+xgb_wf <- workflow() %>% 
+  add_formula(win ~ .) %>% 
+  add_model(xgb_spec)
+```
+
+### Cross-validation
+
+```{r}
+set.seed(123)
+vb_folds <- vfold_cv(train, strata = win)
+
+```
+
+
+### Setting up the tuning process
+```{r}
+doParallel::registerDoParallel()
+set.seed(234)
+
+xgb_res <- tune_grid(
+  xgb_wf, 
+  resamples = vb_folds, 
+  grid = xgb_grid, 
+  control = control_grid(save_pred = TRUE)
+) 
+```
+
+### Visualising the models generated
+
+Since these values used a latin hypercube grid, which results in generated results. The purpose of the visualisation here is see how best to maximise the area under the curve (or whatevewr metric is selected). A space-filling design doesn't allow you to pick off the best values, but we can understand a bit about our results. 
+
+```{r}
+xgb_res %>%  
+  collect_metrics() %>% 
+  filter(.metric == "roc_auc") %>% 
+  select(mean, mtry:sample_size) %>% 
+  pivot_longer(cols = mtry:sample_size, 
+               names_to = "parameter", 
+               values_to = "value") %>% 
+  ggplot(aes(x = value, 
+             y = mean, 
+             colour = parameter)) + 
+  geom_point(show.legend = FALSE) + 
+  facet_wrap(~parameter, scales = "free_x")
+```
+
+```{r}
+# show_best shows the 5 best models
+show_best(xgb_res, "roc_auc") 
+
+# For better results, it would be best to increase the size in the construction of the latin hypercube grid 
+# If not, you will be limited by "auto-generated" values
+best_auc <- select_best(xgb_res, "roc_auc")
+
+final_xgb <- finalize_workflow(xgb_wf, best_auc)
+
+```
+
+### VIP 
+
+```{r}
+final_xgb %>% 
+  fit(data = train) %>% 
+  pull_workflow_fit() %>% 
+  vip(geom = "point")
+```
+
+### Last fit
+
+Fitting the final training model and evaluating on the test set 
+
+```{r}
+final_res <- last_fit(final_xgb, vb_split)
+
+final_res %>% collect_metrics()
+
+# These are predictions on the testing data 
+# Meaning that we can do things like confusion matrices
+final_res %>% 
+  collect_predictions() %>% 
+  conf_mat(win, .pred_class)
+
+final_res %>% 
+  collect_predictions() %>% 
+  roc_curve(win, .pred_win) %>% 
+  autoplot()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ 

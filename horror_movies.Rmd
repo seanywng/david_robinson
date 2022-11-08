@@ -1,0 +1,230 @@
+---
+title: "Untitled"
+output: html_document
+date: '2022-11-03'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(scales)
+library(lubridate)
+library(tidymodels)
+library(textrecipes)
+
+theme_set(theme_light())
+```
+
+```{r}
+horror <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2022/2022-11-01/horror_movies.csv')
+
+```
+
+
+```{r}
+horror %>% glimpse()
+
+horror %>% count(collection_name, sort = TRUE)
+
+horror %>% 
+  mutate(year = year(release_date)) %>% 
+  ggplot(aes(x = year)) + 
+  geom_histogram()
+
+
+horror %>% 
+  filter(runtime >= 60 & runtime <= 300) %>% 
+  ggplot(aes(x = runtime)) + 
+  geom_histogram() + 
+  scale_x_log10()
+
+```
+
+```{r}
+
+selected_average <- horror %>% 
+  filter(title == "The Cabin in the Woods") %>% 
+  pull(vote_average)
+
+
+horror %>% 
+  filter(vote_count >= 10) %>% 
+  ggplot(aes(x = vote_average)) + 
+  geom_histogram() + 
+  geom_vline(colour = "red", lty = 2, xintercept = selected_average)
+```
+
+```{r}
+saw_rating <- horror %>% 
+  filter(str_detect(collection_name, "Saw"))
+
+horror %>% 
+  filter(vote_count >= 10) %>% 
+  ggplot(aes(x = vote_average)) + 
+  geom_histogram() + 
+  geom_vline(data = saw_rating, 
+             aes(xintercept = vote_average), 
+             colour = "red", 
+             lty = 2) + 
+  geom_text(aes(label = title, 
+                 y = 100 * as.integer(fct_reorder(title, vote_average))), 
+            data = saw_rating, 
+            hjust = 1) + 
+  labs(y = "Count")
+```
+
+```{r}
+horror %>% 
+  filter(vote_count >= 100) %>% 
+  ggplot(aes(x = vote_count, 
+             y = vote_average)) + 
+  geom_point() +
+  geom_text(aes(label = title), 
+            check_overlap = TRUE, 
+            vjust = 1, 
+            hjust = 0, 
+            size = 3) + 
+  scale_x_log10() + 
+  scale_y_log10() + 
+  expand_limits(x = 30000)
+```
+
+```{r}
+horror %>% 
+  filter(vote_count >= 1000) %>% 
+  arrange(desc(vote_average)) %>% 
+  select(title, vote_count, vote_average)
+
+horror %>% 
+  separate_rows(genre_names,
+                sep = ", ") %>%
+  rename(genre = genre_names) %>% 
+  filter(vote_count >= 100) %>% 
+  mutate(genre = fct_reorder(genre, vote_average)) %>% 
+  ggplot(aes(x = vote_average, 
+             y = genre)) + 
+  geom_boxplot()
+```
+
+> What makes a good horror movie? 
+
+```{r}
+dataset <- horror %>% 
+  select(-original_title, 
+         -collection, 
+         -backdrop_path,
+         -adult, 
+         -poster_path) %>% 
+  filter(status == "Released" & 
+           vote_count >= 30) %>% 
+  rename(genre = genre_names)
+
+set.seed(2022)
+spl <- initial_split(dataset)
+train <- training(spl)
+test <- testing(spl)
+folds <- vfold_cv(train, 5)
+
+```
+
+```{r}
+rec <- recipe(vote_average ~ 
+                release_date + 
+                budget + 
+                genre + 
+                runtime +
+                original_language + 
+                title + 
+                overview + 
+                tagline, 
+              data = train) %>% 
+  step_tokenize(title, overview, tagline) %>% 
+  step_stopwords(title, overview, tagline) %>% 
+  step_tokenfilter(title, overview, tagline,
+                   max_tokens = 10) %>% 
+  step_tf(title, overview, tagline) %>% 
+  step_tokenize(genre, 
+                token = "regex", 
+                options = list(pattern = ", ")) %>%
+  step_tokenfilter(max_tokens = 10) %>% 
+  step_tf(genre) %>% 
+  step_other(original_language, 
+             threshold = .01) %>% 
+  step_mutate(release_date = year(release_date), 
+              budget = na_if(budget, 0)) %>% 
+  step_select(-tf_genre_Horror) %>% 
+  step_dummy(original_language) %>% 
+  step_log(budget, offset = 1) %>% 
+  # step_ns is useful if you note that there is a non-linear relationship 
+  step_ns(runtime, 
+          deg_free = 3) %>% 
+  step_impute_median(budget)
+
+rec %>% 
+  workflow(linear_reg()) %>% 
+  fit_resamples(folds) %>% 
+  collect_metrics()
+
+tuned <- rec %>% 
+  workflow(linear_reg(engine = "glmnet", 
+                      penalty = tune())) %>% 
+  tune_grid(folds, 
+            grid = crossing(penalty = 10 ^ seq(-4, -.1, .1))) 
+
+  autoplot() +
+  scale_x_log10()
+
+```
+
+
+```{r}
+rec %>% 
+  finalize_recipe(list(max_tokens = 5)) %>% 
+  prep() %>% 
+  juice()
+```
+
+
+```{r}
+boosted_rec <- recipe(vote_average ~ 
+                release_date + 
+                budget + 
+                genre + 
+                runtime, 
+              data = train) %>% 
+  step_tokenize(genre, 
+                token = "regex", 
+                options = list(pattern = ", ")) %>%
+  step_tokenfilter(max_tokens = 10) %>% 
+  step_tf(genre) %>% 
+  step_dummy(all_nominal_predictors()) %>% 
+  step_mutate(release_date = year(release_date)) %>% 
+  step_select(-tf_genre_Horror) 
+
+tuned <- rec %>% 
+  workflow(linear_reg(engine = "glmnet", 
+                      penalty = tune())) %>% 
+  tune_grid(folds, 
+            grid = crossing(penalty = 10 ^ seq(-4, -.1, .1))) 
+
+boosted_rec %>% 
+  prep() %>% 
+  juice()
+
+tuned <- boosted_rec %>% 
+  workflow(boost_tree(mode = "regression", 
+                      mtry = tune(), 
+                      trees = tune(), 
+                      learn_rate = tune())) %>% 
+  tune_grid(folds, 
+            grid = crossing(learn_rate = c(.003, .01, .03),
+                            trees = seq(25, 900, 25), 
+                            mtry = c(3, 4, 5)), 
+            metrics = metric_set(rsq))
+
+
+tuned %>% autoplot()
+```
+
+
