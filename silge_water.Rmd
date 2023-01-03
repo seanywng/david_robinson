@@ -1,0 +1,67 @@
+---
+title: "Untitled"
+output: html_document
+date: '2022-11-09'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(tidymodels)
+library(scales)
+
+theme_set(theme_light())
+```
+
+# Data
+
+```{r}
+water_raw <- read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-05-04/water.csv")
+```
+
+```{r}
+glimpse(water_raw)
+
+
+water_raw %>% 
+  filter(status_id %in% c("y", "n") & 
+           country_name == "Sierra Leone" & 
+           lat_deg > 0 & 
+           lat_deg < 15 &
+           lon_deg <0) %>% 
+  ggplot(aes(x = lon_deg, 
+             y = lat_deg, 
+             colour = status_id)) +
+  geom_point(alpha = .15) +
+  coord_fixed() + 
+  guides(colour = guide_legend(override.aes = list(alpha = 1)))
+  
+
+
+```
+
+```{r}
+water <- water_raw %>% 
+  filter(status_id %in% c("y", "n") & 
+           country_name == "Sierra Leone" & 
+           lat_deg > 0 & 
+           lat_deg < 15 &
+           lon_deg <0) %>% 
+  mutate(pay = case_when(str_detect(pay, "^No") ~ "No", 
+                         str_detect(pay, "^Yes") ~ "Yes", 
+                         is.na(pay) ~ pay, 
+                         TRUE ~ "complicated"))
+  select(-country_name, -status, -report_date)
+```
+
+
+```{r}
+water %>% count(pay)
+
+water %>% count(water_tech)
+
+water %>% count(water_source)
+```
+
+

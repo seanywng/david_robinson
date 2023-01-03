@@ -1,0 +1,128 @@
+---
+title: "Untitled"
+output: html_document
+date: '2023-01-02'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(tidytuesdayR)
+library(scales)
+library(lubridate)
+theme_set(theme_light())
+
+```
+
+
+### load data 
+
+```{r}
+
+# This is another way of writing an anonymous function
+clean_data <- . %>%
+  select(-timestamp) %>%
+  mutate(date = ymd(date))
+
+image_alt <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2022/2022-11-15/image_alt.csv') %>%
+  clean_data()
+
+color_contrast <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2022/2022-11-15/color_contrast.csv') %>%
+  clean_data()
+
+ally_scores <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2022/2022-11-15/ally_scores.csv') %>%
+  clean_data()
+
+bytes_total <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2022/2022-11-15/bytes_total.csv') %>%
+  clean_data()
+
+speed_index <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2022/2022-11-15/speed_index.csv') %>%
+  clean_data()
+```
+
+```{r}
+speed_index %>% glimpse()
+```
+
+
+```{r}
+speed_index %>% 
+  ggplot(aes(x = date, y = p50, colour = client)) + 
+  geom_line() + 
+  geom_ribbon(aes(ymin = p25, ymax = p75), alpha = .25) + 
+  labs(y = "Median speed (with 25th-75th percentiles")
+```
+
+
+```{r}
+image_alt %>% 
+  ggplot(aes(x = date, y = percent, 
+             colour = client)) +  
+  geom_line() + 
+  labs(y = "% of images with alt text")
+```
+
+
+```{r}
+color_contrast %>% 
+  ggplot(aes(x = date, y = percent, 
+             colour = client)) +  
+  geom_line() + 
+  labs(y = "% of images with colour contrast [?]")
+```
+
+```{r}
+ally_scores %>% 
+  ggplot(aes(x = date, y = p50, 
+             colour = client)) + 
+  geom_line() + 
+  geom_ribbon(aes(ymin = p25, ymax = p75),
+              alpha = .25) +
+  labs(y = "Median a11y scores (with 25th-75th percentiles)")
+```
+
+
+```{r}
+combined <- bind_rows(
+  speed_index, 
+  bytes_total, 
+  ally_scores
+)
+
+combined %>% 
+  ggplot(aes(x = date, 
+             y = p50, 
+             colour = client)) + 
+  geom_line() +
+  geom_ribbon(aes(ymin = p25, 
+                  ymax = p75), 
+              alpha = .15) + 
+  facet_wrap(~ measure, 
+             scale = "free") + 
+  labs(y = "Median (with 25th-75th percentiles)")
+  
+```
+
+
+```{r}
+bind_rows(image_alt, color_contrast) %>% 
+  ggplot(aes(x = date, y = percent / 100, 
+             colour = client)) + 
+  geom_line() +
+  scale_y_continuous(labels = percent_format()) + 
+  labs(y = "Percentage") + 
+  facet_wrap(~ measure)
+```
+
+
+
+
+
+
+
+
+
+
+
+
