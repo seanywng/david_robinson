@@ -1,0 +1,141 @@
+---
+title: "Untitled"
+format: html
+editor: visual
+---
+
+
+```{r setup, include=FALSE}
+
+library(tidyverse)
+library(tidytuesdayR)
+library(scales)
+library(lubridate)
+library(sf)
+library(here)
+library(units)
+theme_set(theme_light())
+
+```
+
+
+```{r}
+
+tt <- tt_load("2022-12-06")
+
+elevators <- tt$elevators |> 
+  janitor::clean_names() %>% 
+  setNames(gsub("dv_", "", names(.))) |> 
+  filter(longitude > -76) |> 
+  mutate(floor_to_raw = floor_to, 
+         floor_to = as.numeric(floor_to), 
+         floor_from = as.numeric(floor_from), 
+         zip_code = str_sub(as.character(na_if(zip_code, 0)), 1, 5), 
+         floor_to = ifelse(floor_to > 90 | floor_to < 1, NA, floor_to))
+
+zip_codes <- read_sf("./nyc_zipcode_shapefile/geo_export_ec0580c0-d8d8-4f5f-a24d-bc8072c4e29d.shp") |> 
+  mutate(area = st_area(geometry), 
+         area = set_units(area, "kilometres^2"))
+
+
+elevators |> count(dv_device_status_description)
+
+elevators |> 
+  ggplot(aes(x = longitude, y = latitude,  
+             colour = borough)) + 
+  geom_point()
+
+geo$area.m2 <- st_area(geo$geometry)
+
+```
+
+
+```{r}
+elevators  %>%
+  filter(!is.na(floor_to)) |> 
+  count(floor_to, sort = TRUE)
+
+elevators |> 
+  select(house_number, street_name, borough, floor_to) |> 
+  arrange(desc(floor_to))
+
+by_building <- elevators |> 
+  arrange(desc(floor_to)) |> 
+  group_by(bin, house_number, street_name, zip_code, borough) |> 
+  summarise(max_floor = na_if(max(floor_to, na.rm = TRUE), -Inf),
+            # min_floor = na_if(min(floor_from, na.rm = TRUE), Inf),
+            n_elevators = n(),
+            latitude = mean(latitude, na.rm = TRUE), 
+            longitude = mean(longitude, na.rm = TRUE), 
+            .groups = "drop") |> 
+  arrange(desc(max_floor))
+  
+```
+
+```{r}
+by_building |> 
+  filter(!is.na(max_floor)) |> 
+  arrange(max_floor) |> 
+  ggplot(aes(x = longitude, y = latitude, 
+             colour = max_floor)) + 
+  geom_point() + 
+  scale_color_gradient2(trans = "log10", 
+                        low = "blue", high = "red", 
+                        midpoint = log10(10)) + 
+  ggthemes::theme_map() + 
+  labs(colour = "Height in floors\n(highest elevator)")
+```
+
+
+```{r}
+by_zip_code <- by_building |> 
+  filter(!is.na(zip_code)) |> 
+  group_by(zip_code, borough) |> 
+  summarise(n_buildings = n(), 
+            n_buildings_height = sum(!is.na(max_floor)), 
+            geom_mean_height = exp(mean(log(max_floor), na.rm = TRUE)),
+            tallest_building = max(max_floor, na.rm = TRUE), 
+            .groups = "drop") |> 
+  filter(n_buildings_height >= 20) |> 
+  arrange(desc(geom_mean_height)) 
+```
+
+```{r}
+joined_zip_codes <- zip_codes %>%
+  left_join(by_zip_code, by = c("modzcta" = "zip_code")) %>%
+  mutate(population_density = pop_est / area,
+         elevator_building_density = n_buildings / area)
+```
+
+```{r}
+joined_zip_codes |> 
+  ggplot(aes(fill = geom_mean_height)) + 
+  geom_sf(size = .1) + 
+  scale_fill_gradient2(low = "blue", high = "red", 
+                       # This is the median of max_floors
+                       midpoint = log10(6), 
+                       trans = "log10") + 
+  ggthemes::theme_map() + 
+  coord_sf(datum = NA) + 
+  labs(fill = "Average (geometric) height of buildings with elevators") + 
+  theme(legend.position = "top")
+
+
+  theme(legend.position = "top", 
+        legend.justification = "left", 
+        legend.direction = "vertical")
+```
+
+```{r}
+by_building |> 
+  filter(!is.na(borough)) |> 
+  ggplot(aes(x = max_floor, y = borough)) +
+  geom_boxplot() + 
+  scale_x_log10()
+
+```
+
+
+```{r}
+```
+

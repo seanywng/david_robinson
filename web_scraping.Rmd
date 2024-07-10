@@ -9,7 +9,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 library(rvest)
 library(tidyverse)
-
+library(xml2)
 
 ```
 
@@ -47,13 +47,24 @@ df <- 'https://reliefweb.int/updates?advanced-search=%28PC241%29_%28F10%29' %>%
 ```
 
 ```{r}
-html <-  read_html('https://www.imdb.com/name/nm0000195/')
+site <-  read_html("https://reliefweb.int/report/ukraine/ukraine-emergency-unhcr-operational-response-delivery-updates-28-december-2022-enuk")
 
-name_overview <- html %>% 
-  html_element('#name-overview-widget')
+site_text <- html_text2(site) %>% 
+  as_tibble()
 
-html_text2(name_overview)  
+ 
+source <- {str_match(site_text, 
+                    "\nSource\n\\s*(.*?)\\s*\n") [, 2]} 
 
+text <- {str_match(site_text, 
+                    "(?s)Download Report\\s*(.*?)\\s*Report details") [, 2]} 
+
+site_text %>% 
+  mutate(source = )
 
 ```
+```{r}
+site2 <- read_html("https://reliefweb.int/report/ukraine/war-ukraine-situation-report-who-ukraine-country-office-issue-no38-30-december-2022") %>% html_text2()
+```
+
 
